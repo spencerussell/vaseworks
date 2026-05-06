@@ -133,8 +133,8 @@ export function HelpModal({ open, onClose, returnFocusRef }) {
                 <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.65, color: C.ink }}>
                   Vase mode (also called spiral mode) prints your model as one continuous spiral
                   instead of discrete layers. The printer never stops or starts, the nozzle
-                  climbs gradually as it traces the outer wall. The result is a single-perimeter,
-                  watertight vessel with no Z-seam, printed faster and using less filament than
+                  climbs gradually as it traces the outer wall. The result is a single-wall
+                  spiral vessel with no Z-seam, printed faster and using less filament than
                   a normal print. Best for vases, planters, lampshades, and decorative vessels.
                 </p>
               </div>
