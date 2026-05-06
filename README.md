@@ -2,7 +2,7 @@
 
 A browser-based parametric vase generator for 3D printing in vase mode (single-wall spiralized printing). Adjust silhouette, surface modifiers, and print parameters in real time, then export a watertight binary STL ready for your slicer.
 
-![Vaseworks screenshot](screenshot.png)
+![Vaseworks screenshot](public/screenshot-webpage.png)
 
 Live: [vaseworks.spencer-russell.com](https://vaseworks.spencer-russell.com)
 
@@ -17,6 +17,8 @@ Live: [vaseworks.spencer-russell.com](https://vaseworks.spencer-russell.com)
 ## Slicing
 
 Drop the exported STL into PrusaSlicer, Bambu Studio, or Cura with vase mode enabled (Settings → Spiralize Outer Contour, or the equivalent option in your slicer) to slice.
+
+![Vase example](public/vase-example.jpg)
 
 ## Built with
 
