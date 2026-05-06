@@ -1,7 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 24 24">
+  <style>
+    :root { --outline: #0b0a08; }
+    @media (prefers-color-scheme: dark) { :root { --outline: #f3ede1; } }
+  </style>
   <path d="M10 5 L10 8 Q7 11 7 15 Q7 22 9 25 L9 27 L23 27 L23 25 Q25 22 25 15 Q25 11 22 8 L22 5 Z"
-        fill="#e63946" stroke="#0b0a08" stroke-width="1.5" stroke-linejoin="miter"/>
+        fill="#e63946" stroke="var(--outline)" stroke-width="1.5" stroke-linejoin="miter"/>
   <path d="M12 6 L12 8 Q9 11 9 15 Q9 21 11 24"
-        fill="none" stroke="#0b0a08" stroke-width="1" opacity="0.6"/>
-  <line x1="9" y1="25" x2="23" y2="25" stroke="#0b0a08" stroke-width="1"/>
+        fill="none" stroke="var(--outline)" stroke-width="1" opacity="0.6"/>
+  <line x1="9" y1="25" x2="23" y2="25" stroke="var(--outline)" stroke-width="1"/>
 </svg>
