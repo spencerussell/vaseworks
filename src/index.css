@@ -18,3 +18,10 @@ aside, div { scrollbar-width: thin; scrollbar-color: #0b0a08 #d6cdb6; }
 button:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid #1e55c7; outline-offset: 2px;
 }
+
+/* Hide native number-input spinners on the click-to-edit stat cell */
+.vaseworks-stat-input::-webkit-outer-spin-button,
+.vaseworks-stat-input::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.vaseworks-stat-input { -moz-appearance: textfield; appearance: textfield; }

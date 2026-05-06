@@ -22,24 +22,200 @@ function formatTime(sec) {
   return `${s}s`;
 }
 
-function Stat({ label, value, unit }) {
+const STAT_LABEL_STYLE = {
+  fontSize: 9, fontWeight: 800, letterSpacing: '0.12em',
+  textTransform: 'uppercase', color: C.muted,
+};
+const STAT_VALUE_STYLE = {
+  fontFamily: 'ui-monospace, monospace', fontSize: 18, fontWeight: 700,
+  color: C.ink, lineHeight: 1,
+};
+const STAT_UNIT_STYLE = {
+  fontFamily: 'ui-monospace, monospace', fontSize: 10, color: C.muted,
+};
+
+function Stat({ label, value, unit, headerExtra }) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', padding: '10px 12px',
       border: `2px solid ${C.ink}`, background: C.paper, flex: 1, minWidth: 0,
     }}>
-      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>
-        {label}
+      <span style={{ display: 'flex', alignItems: 'center', gap: 5, ...STAT_LABEL_STYLE }}>
+        <span>{label}</span>
+        {headerExtra}
       </span>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 2 }}>
-        <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 18, fontWeight: 700, color: C.ink, lineHeight: 1 }}>
-          {value}
-        </span>
-        {unit && (
-          <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, color: C.muted }}>
-            {unit}
-          </span>
+        <span style={STAT_VALUE_STYLE}>{value}</span>
+        {unit && <span style={STAT_UNIT_STYLE}>{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+function InfoTooltip({ id, label, children }) {
+  const [open, setOpen] = React.useState(false);
+  const [placement, setPlacement] = React.useState('top');
+  const iconRef = React.useRef(null);
+  const tipRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  React.useLayoutEffect(() => {
+    if (!open || !iconRef.current || !tipRef.current) return;
+    const iconRect = iconRef.current.getBoundingClientRect();
+    const tipRect = tipRef.current.getBoundingClientRect();
+    const wouldClipAbove = iconRect.top - tipRect.height - 12 < 8;
+    setPlacement(wouldClipAbove ? 'bottom' : 'top');
+  }, [open]);
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        ref={iconRef}
+        type="button"
+        aria-label={label}
+        aria-describedby={open ? id : undefined}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        style={{
+          width: 13, height: 13, padding: 0,
+          border: `1.5px solid ${C.muted}`, borderRadius: '50%',
+          background: 'transparent', color: C.muted,
+          fontFamily: 'ui-serif, Georgia, serif',
+          fontSize: 9, fontWeight: 700, fontStyle: 'italic',
+          lineHeight: 1, cursor: 'help',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        i
+      </button>
+      {open && (
+        <div
+          ref={tipRef}
+          id={id}
+          role="tooltip"
+          style={{
+            position: 'absolute', left: '50%', transform: 'translateX(-50%)',
+            ...(placement === 'top'
+              ? { bottom: 'calc(100% + 10px)' }
+              : { top: 'calc(100% + 10px)' }),
+            width: 280,
+            background: C.ink, color: C.paper,
+            border: `2px solid ${C.yellow}`,
+            boxShadow: `3px 3px 0 ${C.ink}`,
+            padding: '12px 14px',
+            fontSize: 11, lineHeight: 1.5, fontWeight: 500,
+            letterSpacing: 'normal', textTransform: 'none',
+            zIndex: 100, pointerEvents: 'none',
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </span>
+  );
+}
+
+function EditableStat({ label, value, unit, min, max, step, onChange, ariaLabel, inputAriaLabel, format }) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState('');
+  const [hover, setHover] = React.useState(false);
+  const [focus, setFocus] = React.useState(false);
+  const inputRef = React.useRef(null);
+
+  const startEdit = () => {
+    setDraft(format(value));
+    setEditing(true);
+  };
+
+  React.useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    const n = trimmed === '' ? NaN : parseFloat(trimmed);
+    if (Number.isFinite(n)) {
+      const clamped = Math.max(min, Math.min(max, n));
+      const snapped = Math.round(clamped / step) * step;
+      const final = parseFloat(snapped.toFixed(4));
+      if (final !== value) onChange(final);
+    }
+    setEditing(false);
+  };
+
+  const cancel = () => setEditing(false);
+
+  const lifted = !editing && (hover || focus);
+
+  return (
+    <div
+      role={editing ? undefined : 'button'}
+      aria-label={editing ? undefined : ariaLabel}
+      tabIndex={editing ? -1 : 0}
+      onClick={editing ? undefined : startEdit}
+      onKeyDown={(e) => {
+        if (editing) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          startEdit();
+        }
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setFocus(true)}
+      onBlur={() => setFocus(false)}
+      style={{
+        display: 'flex', flexDirection: 'column', padding: '10px 12px',
+        border: `2px solid ${C.ink}`,
+        background: lifted ? C.soft : C.paper,
+        flex: 1, minWidth: 0,
+        cursor: editing ? 'text' : 'pointer',
+        outline: focus && !editing ? `2px solid ${C.blue}` : 'none',
+        outlineOffset: focus && !editing ? '-4px' : 0,
+        transition: 'background 0.08s',
+      }}
+    >
+      <span style={STAT_LABEL_STYLE}>{label}</span>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 2 }}>
+        {editing ? (
+          <input
+            ref={inputRef}
+            type="number"
+            min={min} max={max} step={step}
+            value={draft}
+            aria-label={inputAriaLabel}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commit(); }
+              else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+            }}
+            onBlur={commit}
+            onClick={(e) => e.stopPropagation()}
+            className="vaseworks-stat-input"
+            style={{
+              ...STAT_VALUE_STYLE,
+              width: '5ch', minWidth: 0,
+              padding: 0, margin: 0,
+              border: 'none', outline: 'none',
+              background: 'transparent',
+              fontFamily: STAT_VALUE_STYLE.fontFamily,
+            }}
+          />
+        ) : (
+          <span style={STAT_VALUE_STYLE}>{format(value)}</span>
         )}
+        {unit && <span style={STAT_UNIT_STYLE}>{unit}</span>}
       </div>
     </div>
   );
@@ -361,11 +537,32 @@ export default function App() {
             display: 'flex', gap: 10, flexShrink: 0,
           }}>
             <Stat label="Layers" value={vase.stats.layerCount} unit=""/>
-            <Stat label="Layer h" value={p.layerHeight.toFixed(2)} unit="mm"/>
-            <Stat label="Path" value={vase.stats.pathLengthM.toFixed(1)} unit="m"/>
+            <EditableStat
+              label="Layer h"
+              value={p.layerHeight}
+              unit="mm"
+              min={0.1} max={0.6} step={0.05}
+              onChange={(v) => setP({ ...p, layerHeight: v })}
+              ariaLabel="Edit layer height"
+              inputAriaLabel="Layer height in millimeters"
+              format={(v) => v.toFixed(2)}
+            />
             <Stat label="Filament" value={vase.stats.filamentMeters.toFixed(1)} unit="m"/>
             <Stat label="Weight" value={vase.stats.weightGrams.toFixed(0)} unit="g"/>
-            <Stat label="Print time" value={formatTime(vase.stats.timeSeconds)} unit=""/>
+            <Stat
+              label="Est. print time"
+              value={formatTime(vase.stats.timeSeconds)}
+              unit=""
+              headerExtra={
+                <InfoTooltip id="est-print-time-tip" label="About this estimate">
+                  Rough estimate based on total path length and assumed extrusion
+                  speed. Real print time depends on slicer-specific factors like
+                  acceleration, retraction, cooling, and first-layer slow-down.
+                  For an accurate number, use the estimate from Bambu Studio,
+                  PrusaSlicer, or your slicer of choice.
+                </InfoTooltip>
+              }
+            />
             <Stat label="Mode" value="Spiral" unit=""/>
           </div>
         </main>
