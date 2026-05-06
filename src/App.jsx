@@ -4,6 +4,7 @@ import { generateVase, PRESETS, stlFromVase } from './lib/vaseGeom.js';
 import { Slider, Select, Section, ModifierCard, C } from './components/Controls.jsx';
 import { Preview3D } from './components/Preview3D.jsx';
 import { ProfilePanel } from './components/ProfilePanel.jsx';
+import { HelpModal } from './components/HelpModal.jsx';
 
 const DEFAULTS = /*EDITMODE-BEGIN*/{
   "preset": "tumbler",
@@ -65,7 +66,7 @@ function Toast({ message, onClose }) {
   );
 }
 
-function Header({ onExport, preset, onPresetChange, units }) {
+function Header({ onExport, onHelp, helpBtnRef, preset, onPresetChange, units }) {
   return (
     <header style={{
       display: 'flex', alignItems: 'stretch',
@@ -123,8 +124,25 @@ function Header({ onExport, preset, onPresetChange, units }) {
         </div>
       </div>
 
-      {/* Export */}
-      <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px' }}>
+      {/* Help + Export */}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px', gap: 12 }}>
+        <button
+          ref={helpBtnRef}
+          onClick={onHelp}
+          aria-label="Slicer setup help"
+          title="Slicer setup help"
+          style={{
+            width: 38, height: 38, padding: 0,
+            background: C.paper, color: C.ink,
+            border: `2px solid ${C.ink}`,
+            fontFamily: 'inherit', fontWeight: 900, fontSize: 17,
+            letterSpacing: 0,
+            cursor: 'pointer', boxShadow: `3px 3px 0 ${C.ink}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            lineHeight: 1,
+          }}>
+          ?
+        </button>
         <button onClick={onExport}
           style={{
             padding: '10px 18px', background: C.red, color: C.paper,
@@ -216,6 +234,8 @@ export default function App() {
   const [renderMode, setRenderMode] = React.useState('wire');
   const [cameraMode, setCameraMode] = React.useState('ortho');
   const [toast, setToast] = React.useState(null);
+  const [helpOpen, setHelpOpen] = React.useState(false);
+  const helpBtnRef = React.useRef(null);
 
   // autoplay
   React.useEffect(() => {
@@ -270,7 +290,14 @@ export default function App() {
       fontFamily: '"Space Grotesk", system-ui, sans-serif',
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
-      <Header onExport={onExport} preset={preset} onPresetChange={onPreset} units="mm"/>
+      <Header
+        onExport={onExport}
+        onHelp={() => setHelpOpen(true)}
+        helpBtnRef={helpBtnRef}
+        preset={preset}
+        onPresetChange={onPreset}
+        units="mm"
+      />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Left: parameters */}
@@ -413,6 +440,7 @@ export default function App() {
       </div>
 
       <Toast message={toast} onClose={() => setToast(null)}/>
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} returnFocusRef={helpBtnRef}/>
     </div>
   );
 }
