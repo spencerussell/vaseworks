@@ -1,0 +1,1417 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>VASEWORKS — Vase-mode STL Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #e8dfc9; }
+    body { font-family: "Space Grotesk", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    #root { width: 100%; height: 100%; }
+    /* scrollbar */
+    aside::-webkit-scrollbar, div::-webkit-scrollbar { width: 8px; height: 8px; }
+    aside::-webkit-scrollbar-track, div::-webkit-scrollbar-track { background: transparent; }
+    aside::-webkit-scrollbar-thumb, div::-webkit-scrollbar-thumb { background: #0b0a08; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid #1e55c7; outline-offset: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script>
+    // Vase geometry generator — produces ring samples per layer
+    const TAU = Math.PI * 2;
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function smoothstep(t) { return t * t * (3 - 2 * t); }
+    function ringNoise(angle, seed, octaves) {
+      octaves = octaves || 3;
+      let v = 0, amp = 1, totalAmp = 0;
+      for (let o = 0; o < octaves; o++) {
+        const freq = Math.pow(2, o) + 1;
+        const s = seed + o * 7.31;
+        v += amp * (Math.sin(angle * freq + s) + Math.sin(angle * freq * 1.73 + s * 2.1)) * 0.5;
+        totalAmp += amp;
+        amp *= 0.55;
+      }
+      return v / totalAmp;
+    }
+    function baseProfile(heightT, p) {
+      const linear = lerp(p.bottomRadius, p.topRadius, heightT);
+      const d = heightT - p.waistHeight;
+      const bell = Math.exp(-(d * d) / 0.04);
+      const pinchAmount = p.waistPinch * ((p.bottomRadius + p.topRadius) / 2) * 0.35;
+      return Math.max(1.5, linear + pinchAmount * bell);
+    }
+    function generateVase(params) {
+      const p = Object.assign({
+        height: 120, bottomRadius: 30, topRadius: 35, waistPinch: 0, waistHeight: 0.5,
+        layerHeight: 0.3, segments: 96, wallThickness: 1.2,
+        flutesEnabled: false, flutesCount: 12, flutesDepth: 2,
+        wavesEnabled: false, wavesFreq: 8, wavesAmp: 1.5,
+        facetsEnabled: false, facetsSides: 6, facetsSharpness: 0.5,
+        twistEnabled: false, twistDegrees: 90,
+        lumpsEnabled: false, lumpsAmount: 1.5, lumpsSeed: 1,
+        spiralEnabled: false, spiralCount: 3, spiralDepth: 1.5, spiralPitch: 40,
+        embossEnabled: false, embossPattern: "diamond", embossScale: 14, embossDepth: 0.8,
+      }, params);
+      const layerCount = Math.max(4, Math.round(p.height / p.layerHeight));
+      const layers = [];
+      for (let li = 0; li < layerCount; li++) {
+        const z = li * p.layerHeight;
+        const t = li / (layerCount - 1);
+        const ring = [];
+        const baseR = baseProfile(t, p);
+        // Full modifier amplitude across the entire height — top and bottom outlines
+        // match the rest of the surface (no fade-to-circle at the rim/base).
+        const modFade = 1;
+        const twistRad = p.twistEnabled ? (p.twistDegrees * Math.PI / 180) * t : 0;
+        for (let si = 0; si < p.segments; si++) {
+          const theta0 = (si / p.segments) * TAU;
+          const theta = theta0 + twistRad;
+          let r = baseR;
+          if (p.flutesEnabled) {
+            const soft = Math.cos(theta * p.flutesCount) * 0.5 - 0.5;
+            r += soft * p.flutesDepth * modFade;
+          }
+          if (p.wavesEnabled) {
+            r += Math.sin((z / p.height) * TAU * p.wavesFreq) * p.wavesAmp * modFade;
+          }
+          if (p.facetsEnabled && p.facetsSides >= 3) {
+            const n = p.facetsSides;
+            const sectorAngle = TAU / n;
+            const a = ((theta % sectorAngle) + sectorAngle) % sectorAngle - sectorAngle / 2;
+            const polyR = baseR * Math.cos(Math.PI / n) / Math.cos(a);
+            r = lerp(r, polyR, p.facetsSharpness * modFade);
+          }
+          if (p.lumpsEnabled) {
+            r += ringNoise(theta * 1.5, p.lumpsSeed + z * 0.02, 3) * p.lumpsAmount * modFade;
+          }
+          if (p.spiralEnabled) {
+            const pitchTurns = p.height / Math.max(1, p.spiralPitch);
+            const ribPhase = theta * p.spiralCount + (z / p.height) * TAU * pitchTurns * p.spiralCount;
+            r += (Math.cos(ribPhase) * 0.5 - 0.5) * p.spiralDepth * modFade;
+          }
+          if (p.embossEnabled) {
+            const u = theta * baseR;
+            const v = z;
+            let d = 0;
+            if (p.embossPattern === "diamond") {
+              const sx = p.embossScale;
+              const cx2 = ((u % sx) + sx) % sx - sx / 2;
+              const cy2 = ((v % sx) + sx) % sx - sx / 2;
+              const diamond = (Math.abs(cx2) + Math.abs(cy2)) / (sx / 2);
+              d = (1 - Math.min(1, diamond)) * 2 - 1;
+            } else if (p.embossPattern === "hex") {
+              const sx = p.embossScale;
+              const row = Math.floor(v / (sx * 0.866));
+              const offset = (row % 2) * sx / 2;
+              const cx2 = (((u + offset) % sx) + sx) % sx - sx / 2;
+              const cy2 = ((v % (sx * 0.866)) + sx * 0.866) % (sx * 0.866) - sx * 0.433;
+              d = 1 - Math.min(1, Math.sqrt(cx2 * cx2 + cy2 * cy2) / (sx * 0.45));
+            }
+            r += d * p.embossDepth * modFade;
+          }
+          ring.push({ x: Math.cos(theta0) * r, y: Math.sin(theta0) * r, z: z, r: r, theta: theta0 });
+        }
+        layers.push(ring);
+      }
+      let pathLength = 0;
+      for (const ring of layers) {
+        for (let i = 0; i < ring.length; i++) {
+          const a = ring[i], b = ring[(i + 1) % ring.length];
+          pathLength += Math.hypot(a.x - b.x, a.y - b.y);
+        }
+      }
+      pathLength += p.height;
+      const filamentDiameter = 1.75, lineWidth = 0.4;
+      const lineArea = lineWidth * p.layerHeight;
+      const filamentArea = Math.PI * (filamentDiameter / 2) * (filamentDiameter / 2);
+      const filamentLength = (pathLength * lineArea) / filamentArea;
+      const baseVolume = Math.PI * layers[0][0].r * layers[0][0].r * (p.layerHeight * 3);
+      const baseFilamentLength = baseVolume / filamentArea;
+      const totalFilament = (filamentLength + baseFilamentLength) / 1000;
+      const density = 1.24;
+      const weight = (filamentLength * filamentArea + baseVolume) / 1000 * density;
+      const timeSeconds = pathLength / 80;
+      return { layers: layers, params: p, layerCount: layerCount, stats: {
+        layerCount: layerCount, filamentMeters: totalFilament, weightGrams: weight,
+        timeSeconds: timeSeconds, pathLengthM: pathLength / 1000,
+      }};
+    }
+    const PRESETS = {
+      "cylinder": { height: 120, bottomRadius: 30, topRadius: 30, waistPinch: 0, waistHeight: 0.5 },
+      "tumbler": { height: 100, bottomRadius: 28, topRadius: 34, waistPinch: 0, waistHeight: 0.5 },
+      "amphora": { height: 160, bottomRadius: 22, topRadius: 18, waistPinch: 0.6, waistHeight: 0.35 },
+      "bowl": { height: 55, bottomRadius: 20, topRadius: 50, waistPinch: 0, waistHeight: 0.5 },
+      "planter": { height: 90, bottomRadius: 35, topRadius: 48, waistPinch: 0, waistHeight: 0.5 },
+      "bud vase": { height: 140, bottomRadius: 18, topRadius: 14, waistPinch: -0.3, waistHeight: 0.7 },
+      "hourglass": { height: 130, bottomRadius: 32, topRadius: 32, waistPinch: -0.7, waistHeight: 0.5 },
+      "bulb": { height: 110, bottomRadius: 20, topRadius: 16, waistPinch: 0.9, waistHeight: 0.4 },
+    };
+    // Binary STL exporter — outer wall surface + flat bottom cap, open top.
+    // Standard authoring pattern for vase-mode-compatible STLs: the slicer
+    // reads the outer surface and spiralizes it. Triangle winding is chosen so
+    // every face's normal points away from the central Z axis (walls) or
+    // straight down (bottom cap).
+    function stlFromVase(vase) {
+      const layers = vase.layers;
+      const layerCount = layers.length;
+      const segments = layers[0].length;
+      const wallTris = (layerCount - 1) * segments * 2;
+      const bottomTris = segments;
+      const triCount = wallTris + bottomTris;
+      const buffer = new ArrayBuffer(84 + triCount * 50);
+      const view = new DataView(buffer);
+      // 80-byte header is left zero-filled; uint32 triangle count follows.
+      view.setUint32(80, triCount, true);
+      let off = 84;
+      const writeTri = (ax, ay, az, bx, by, bz, cx, cy, cz) => {
+        const ux = bx - ax, uy = by - ay, uz = bz - az;
+        const vx = cx - ax, vy = cy - ay, vz = cz - az;
+        let nx = uy * vz - uz * vy;
+        let ny = uz * vx - ux * vz;
+        let nz = ux * vy - uy * vx;
+        const len = Math.hypot(nx, ny, nz);
+        if (len > 0) { nx /= len; ny /= len; nz /= len; } else { nx = ny = nz = 0; }
+        view.setFloat32(off, nx, true); view.setFloat32(off + 4, ny, true); view.setFloat32(off + 8, nz, true);
+        view.setFloat32(off + 12, ax, true); view.setFloat32(off + 16, ay, true); view.setFloat32(off + 20, az, true);
+        view.setFloat32(off + 24, bx, true); view.setFloat32(off + 28, by, true); view.setFloat32(off + 32, bz, true);
+        view.setFloat32(off + 36, cx, true); view.setFloat32(off + 40, cy, true); view.setFloat32(off + 44, cz, true);
+        view.setUint16(off + 48, 0, true);
+        off += 50;
+      };
+      // Outer wall: for each pair of adjacent layers (lower L, upper U) and
+      // adjacent segments (i, i+1), emit two triangles. With segments running
+      // CCW about +Z and U above L, the order L[i] → L[i+1] → U[i+1] and
+      // L[i] → U[i+1] → U[i] yields radially-outward normals.
+      for (let li = 0; li < layerCount - 1; li++) {
+        const L = layers[li], U = layers[li + 1];
+        for (let si = 0; si < segments; si++) {
+          const ni = (si + 1) % segments;
+          const a = L[si], b = L[ni], c = U[ni], d = U[si];
+          writeTri(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+          writeTri(a.x, a.y, a.z, c.x, c.y, c.z, d.x, d.y, d.z);
+        }
+      }
+      // Bottom cap: triangle fan from origin to layer-0 ring. Order
+      // center → ring[i+1] → ring[i] gives a -Z normal (outward, since the
+      // bottom faces down).
+      const ring0 = layers[0];
+      const z0 = ring0[0].z;
+      for (let si = 0; si < segments; si++) {
+        const ni = (si + 1) % segments;
+        const a = ring0[si], b = ring0[ni];
+        writeTri(0, 0, z0, b.x, b.y, b.z, a.x, a.y, a.z);
+      }
+      return buffer;
+    }
+    window.VaseGeom = { generateVase: generateVase, PRESETS: PRESETS, stlFromVase: stlFromVase };
+  </script>
+<script type="text/babel" data-presets="env,react">
+(() => {
+// Controls.jsx — parameter sliders, toggles, and atomic UI bits for Bauhaus-playful design
+
+const C = {
+  paper: '#f3ede1',
+  ink: '#0b0a08',
+  red: '#e63946',
+  yellow: '#e5c300',
+  blue: '#1e55c7',
+  teal: '#3a8e8a',
+  soft: '#e8dfc9',
+  muted: '#6b6559',
+};
+
+function Slider({ label, unit, value, min, max, step = 1, onChange, color = C.red, disabled = false }) {
+  const pct = ((value - min) / (max - min)) * 100;
+  return (
+    <div style={{ opacity: disabled ? 0.4 : 1, pointerEvents: disabled ? 'none' : 'auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.ink }}>{label}</span>
+        <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, color: C.ink }}>
+          {typeof value === 'number' ? (Number.isInteger(step) ? value : value.toFixed(step < 0.1 ? 2 : 1)) : value}{unit ? <span style={{ color: C.muted }}> {unit}</span> : null}
+        </span>
+      </div>
+      <div style={{ position: 'relative', height: 22, display: 'flex', alignItems: 'center' }}>
+        <div style={{ position: 'absolute', left: 0, right: 0, height: 6, background: C.soft, border: `1.5px solid ${C.ink}` }}/>
+        <div style={{ position: 'absolute', left: 0, width: `${pct}%`, height: 6, background: color, borderTop: `1.5px solid ${C.ink}`, borderBottom: `1.5px solid ${C.ink}`, borderLeft: `1.5px solid ${C.ink}` }}/>
+        <input
+          type="range" min={min} max={max} step={step} value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          style={{
+            position: 'absolute', left: 0, right: 0, width: '100%',
+            opacity: 0, cursor: 'pointer', margin: 0, height: 22,
+          }}
+        />
+        <div style={{
+          position: 'absolute', left: `calc(${pct}% - 7px)`, width: 14, height: 14,
+          background: C.paper, border: `2px solid ${C.ink}`, borderRadius: '50%', pointerEvents: 'none',
+        }}/>
+      </div>
+    </div>
+  );
+}
+
+function Toggle({ label, value, onChange, color = C.red }) {
+  return (
+    <button
+      onClick={() => onChange(!value)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+        padding: '8px 10px', background: value ? color : C.paper,
+        color: value ? C.paper : C.ink,
+        border: `2px solid ${C.ink}`,
+        cursor: 'pointer', textAlign: 'left',
+        fontFamily: 'inherit', fontSize: 12, fontWeight: 700,
+        letterSpacing: '0.05em', textTransform: 'uppercase',
+      }}
+    >
+      <div style={{
+        width: 14, height: 14, border: `2px solid ${value ? C.paper : C.ink}`,
+        background: value ? C.paper : 'transparent',
+        position: 'relative', flexShrink: 0,
+      }}>
+        {value && <div style={{ position: 'absolute', inset: 1, background: color }}/>}
+      </div>
+      <span style={{ flex: 1 }}>{label}</span>
+    </button>
+  );
+}
+
+// A section card for a surface modifier — header toggle + content reveals when on
+function ModifierCard({ title, shape, enabled, onToggle, color, children }) {
+  return (
+    <div style={{ border: `2px solid ${C.ink}`, marginBottom: -2, background: C.paper }}>
+      <button
+        onClick={() => onToggle(!enabled)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+          padding: '10px 12px', cursor: 'pointer', border: 'none',
+          background: enabled ? color : C.paper,
+          color: enabled ? C.paper : C.ink,
+          fontFamily: 'inherit', fontWeight: 800, fontSize: 12,
+          letterSpacing: '0.08em', textTransform: 'uppercase', textAlign: 'left',
+        }}
+      >
+        <div style={{ flexShrink: 0, width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="18" height="18" viewBox="0 0 18 18">
+            <rect x="0" y="0" width="18" height="18" fill="none" stroke={enabled ? C.paper : C.ink} strokeWidth="1.5"/>
+            {shape === 'circle' && <circle cx="9" cy="9" r="4" fill={enabled ? C.paper : C.ink}/>}
+            {shape === 'wave' && <path d="M2 9 Q5 5 9 9 T16 9" fill="none" stroke={enabled ? C.paper : C.ink} strokeWidth="1.5"/>}
+            {shape === 'triangle' && <polygon points="9,3 15,14 3,14" fill={enabled ? C.paper : C.ink}/>}
+            {shape === 'spiral' && <path d="M9 9 m-5 0 a5 5 0 1 1 10 0 a4 4 0 1 1 -8 0 a3 3 0 1 1 6 0" fill="none" stroke={enabled ? C.paper : C.ink} strokeWidth="1.5"/>}
+            {shape === 'twist' && <path d="M4 3 Q9 9 4 15 M14 3 Q9 9 14 15" fill="none" stroke={enabled ? C.paper : C.ink} strokeWidth="1.5"/>}
+            {shape === 'lumps' && <path d="M2 12 Q4 8 6 11 T10 10 T14 12 T16 11" fill="none" stroke={enabled ? C.paper : C.ink} strokeWidth="1.5"/>}
+            {shape === 'lines' && <g stroke={enabled ? C.paper : C.ink} strokeWidth="1.5"><line x1="3" y1="4" x2="15" y2="4"/><line x1="3" y1="9" x2="15" y2="9"/><line x1="3" y1="14" x2="15" y2="14"/></g>}
+            {shape === 'diamond' && <polygon points="9,2 16,9 9,16 2,9" fill={enabled ? C.paper : C.ink}/>}
+          </svg>
+        </div>
+        <span style={{ flex: 1 }}>{title}</span>
+        <span style={{
+          width: 26, height: 14, background: enabled ? C.paper : C.soft,
+          border: `1.5px solid ${enabled ? C.paper : C.ink}`, position: 'relative',
+        }}>
+          <span style={{
+            position: 'absolute', top: -1, bottom: -1, left: enabled ? 'auto' : -1, right: enabled ? -1 : 'auto',
+            width: 12, background: enabled ? color : C.ink, border: `1.5px solid ${enabled ? C.paper : C.ink}`,
+          }}/>
+        </span>
+      </button>
+      {enabled && (
+        <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: 10, borderTop: `2px solid ${C.ink}` }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Select({ label, value, options, onChange }) {
+  return (
+    <div>
+      {label && (
+        <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.ink, marginBottom: 4 }}>
+          {label}
+        </div>
+      )}
+      <div style={{ position: 'relative' }}>
+        <select
+          value={value} onChange={(e) => onChange(e.target.value)}
+          style={{
+            width: '100%', padding: '8px 10px', border: `2px solid ${C.ink}`,
+            background: C.paper, fontFamily: 'inherit', fontSize: 13, fontWeight: 700,
+            letterSpacing: '0.05em', textTransform: 'uppercase', color: C.ink,
+            appearance: 'none', cursor: 'pointer', paddingRight: 30,
+          }}
+        >
+          {options.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+        <div style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+          <svg width="10" height="6" viewBox="0 0 10 6"><polygon points="0,0 10,0 5,6" fill={C.ink}/></svg>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, dotColor, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+        borderBottom: `2px solid ${C.ink}`, paddingBottom: 6,
+      }}>
+        <div style={{ width: 10, height: 10, background: dotColor, border: `1.5px solid ${C.ink}` }}/>
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.ink }}>
+          {title}
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { Slider, Toggle, ModifierCard, Select, Section, BAUHAUS_C: C });
+
+})();
+</script>
+<script type="text/babel" data-presets="env,react">
+(() => {
+// Preview3D.jsx — SVG-based 3D-ish rendering of the vase with layer contour lines.
+// Uses isometric projection with a user-controlled rotation (drag to spin).
+// Renders filled base, contour layers (clipped by build progress), outline silhouette.
+
+const P3D_COLORS = {
+  bg: '#0d0f10',
+  grid: '#1a1d1f',
+  layer: '#4ec9b0',
+  layerFade: '#2a5f54',
+  silhouette: '#7be0cc',
+  base: '#c34a36',
+  baseStroke: '#ff8a5b',
+  axis: '#2a2e30',
+  accent: '#f5d547',
+  label: '#6b7577',
+};
+
+function project(x, y, z, yaw, pitch) {
+  // yaw: rotate around z-axis, pitch: tilt
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const x1 = x * cy - y * sy;
+  const y1 = x * sy + y * cy;
+  // now tilt about x-axis (rotate y/z)
+  const y2 = y1 * cp - z * sp;
+  const z2 = y1 * sp + z * cp;
+  return { x: x1, y: y2, depth: z2 };
+}
+
+function Preview3D({ vase, progress, yaw, pitch, onYawChange, onPitchChange, width = 640, height = 640, showLayers = true, showPath = false, renderMode = 'wire' }) {
+  const dragging = React.useRef(null);
+
+  const onDown = (e) => {
+    const pt = e.touches ? e.touches[0] : e;
+    dragging.current = { x: pt.clientX, y: pt.clientY, yaw, pitch };
+    e.preventDefault();
+  };
+  const onMove = (e) => {
+    if (!dragging.current) return;
+    const pt = e.touches ? e.touches[0] : e;
+    const dx = pt.clientX - dragging.current.x;
+    const dy = pt.clientY - dragging.current.y;
+    onYawChange(dragging.current.yaw + dx * 0.01);
+    onPitchChange(Math.max(-1.2, Math.min(0.2, dragging.current.pitch - dy * 0.008)));
+  };
+  const onUp = () => { dragging.current = null; };
+
+  React.useEffect(() => {
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove);
+    window.addEventListener('touchend', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+  });
+
+  if (!vase) return null;
+
+  const { layers, params } = vase;
+  const maxR = Math.max(...layers.map(r => Math.max(...r.map(p => Math.hypot(p.x, p.y))))) + 4;
+  const totalHeight = params.height;
+
+  // Auto-fit: project a representative sample of vertices to find the actual on-screen
+  // bounding box, then center it in the viewport. This adapts cleanly to any pitch/yaw
+  // (a tilted vase needs less vertical space than its physical height).
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const cyaw = Math.cos(yaw), syaw = Math.sin(yaw);
+  let projMinX = Infinity, projMaxX = -Infinity, projMinY = Infinity, projMaxY = -Infinity;
+  // Sample top, mid, bottom rings (covers the silhouette extent under any rotation)
+  const sampleRings = [layers[0], layers[Math.floor(layers.length / 2)], layers[layers.length - 1]];
+  for (const ring of sampleRings) {
+    for (const pt of ring) {
+      // project without scaling
+      const x1 = pt.x * cyaw - pt.y * syaw;
+      const y1 = pt.x * syaw + pt.y * cyaw;
+      const y2 = y1 * cp - pt.z * sp;
+      if (x1 < projMinX) projMinX = x1;
+      if (x1 > projMaxX) projMaxX = x1;
+      if (y2 < projMinY) projMinY = y2;
+      if (y2 > projMaxY) projMaxY = y2;
+    }
+  }
+  const projW = projMaxX - projMinX;
+  const projH = projMaxY - projMinY;
+  // Fit with padding (use 78% of viewport in each axis)
+  const scaleX = (width * 0.78) / projW;
+  const scaleY = (height * 0.78) / projH;
+  const scale = Math.min(scaleX, scaleY);
+  // Center the projected bounding box in the viewport
+  const cx = width / 2 - ((projMinX + projMaxX) / 2) * scale;
+  const cy = height / 2 + ((projMinY + projMaxY) / 2) * scale;
+
+  const toScreen = (x, y, z) => {
+    const p = project(x, y, z, yaw, pitch);
+    return { x: cx + p.x * scale, y: cy - p.y * scale, depth: p.depth };
+  };
+
+  const visibleLayerCount = Math.max(1, Math.round(layers.length * progress));
+
+  // Build path strings for each layer contour
+  const layerPaths = [];
+  if (showLayers && renderMode === 'wire') {
+    // Render a fixed, sensible number of contour lines independent of layer count.
+    // (More lines just creates visual noise — we want roughly even spacing on screen.)
+    const targetLines = 140;
+    const step = Math.max(1, Math.ceil(layers.length / targetLines));
+    for (let li = 0; li < visibleLayerCount; li += step) {
+      const ring = layers[li];
+      const pts = ring.map(p => toScreen(p.x, p.y, p.z));
+      let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+      for (let i = 1; i < pts.length; i++) d += `L${pts[i].x.toFixed(1)},${pts[i].y.toFixed(1)}`;
+      d += 'Z';
+      const t = li / layers.length;
+      layerPaths.push({ d, t, li });
+    }
+  }
+
+  // Build quad faces for solid mode — one quad per (segment, layer-pair)
+  // Each quad is shaded by its normal (approximated from the two points on the ring).
+  // We draw all quads sorted by depth (painter's algorithm).
+  const faces = [];
+  if (renderMode === 'solid' && visibleLayerCount >= 2) {
+    // High-quality fixed sampling for the solid render. Enough vertical pairs and
+    // horizontal segments to read as a smooth surface without flooding the SVG.
+    const maxPairs = Math.min(layers.length, 150);
+    const layerStep = Math.max(1, Math.ceil(layers.length / maxPairs));
+    const segCountTotal = layers[0].length;
+    const targetSegs = 144;
+    const segStep = Math.max(1, Math.round(segCountTotal / targetSegs));
+    // Light direction in SCREEN space (stays fixed relative to viewer as vase orbits).
+    // We rotate each face's world-space normal by the same yaw/pitch, then dot with this.
+    const lightDir = { x: -0.35, y: 0.35, z: 0.85 };
+    const lMag = Math.hypot(lightDir.x, lightDir.y, lightDir.z);
+    lightDir.x /= lMag; lightDir.y /= lMag; lightDir.z /= lMag;
+    const cyR = Math.cos(yaw), syR = Math.sin(yaw);
+    const cpR = Math.cos(pitch), spR = Math.sin(pitch);
+    const rotateNormal = (nx, ny, nz) => {
+      // Same transform as project(): yaw about z, then pitch about x
+      const x1 = nx * cyR - ny * syR;
+      const y1 = nx * syR + ny * cyR;
+      const y2 = y1 * cpR - nz * spR;
+      const z2 = y1 * spR + nz * cpR;
+      return { x: x1, y: y2, z: z2 };
+    };
+
+    // Build the strided index lists once so we know our quad grid.
+    const liList = [];
+    for (let li = 0; li < visibleLayerCount - 1; li += layerStep) {
+      liList.push(li);
+    }
+    if (liList.length === 0 || liList[liList.length - 1] !== visibleLayerCount - 1) {
+      liList.push(visibleLayerCount - 1);
+    }
+    const siList = [];
+    for (let si = 0; si < segCountTotal; si += segStep) siList.push(si);
+
+    // ---- Pass 1: per-vertex normals (averaged across the quads touching each vertex)
+    // grid[liIdx][siIdx] = {nx, ny, nz} in WORLD space, before camera rotation.
+    const rows = liList.length, cols = siList.length;
+    const vNorm = new Float32Array(rows * cols * 3);
+    const cellAt = (riA, riB, ci) => {
+      const a = layers[liList[riA]][siList[ci]];
+      const b = layers[liList[riA]][siList[(ci + 1) % cols]];
+      const c = layers[liList[riB]][siList[(ci + 1) % cols]];
+      const d = layers[liList[riB]][siList[ci]];
+      const e1x = b.x - a.x, e1y = b.y - a.y, e1z = b.z - a.z;
+      const e2x = d.x - a.x, e2y = d.y - a.y, e2z = d.z - a.z;
+      let nx = e1y * e2z - e1z * e2y;
+      let ny = e1z * e2x - e1x * e2z;
+      let nz = e1x * e2y - e1y * e2x;
+      const m = Math.hypot(nx, ny, nz) || 1;
+      nx /= m; ny /= m; nz /= m;
+      const cxw = (a.x + c.x) / 2, cyw = (a.y + c.y) / 2;
+      if (nx * cxw + ny * cyw < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      return { nx, ny, nz };
+    };
+    // For each vertex (ri, ci), average the up-to-4 quads it touches.
+    for (let ri = 0; ri < rows; ri++) {
+      for (let ci = 0; ci < cols; ci++) {
+        let nx = 0, ny = 0, nz = 0;
+        // four neighbouring quads: [ri-1,ci-1], [ri-1,ci], [ri,ci-1], [ri,ci]
+        const ciLeft = (ci - 1 + cols) % cols;
+        const tries = [
+          [ri - 1, ciLeft], [ri - 1, ci],
+          [ri, ciLeft],     [ri, ci],
+        ];
+        let count = 0;
+        for (const [rA, cA] of tries) {
+          if (rA < 0 || rA >= rows - 1) continue;
+          const n = cellAt(rA, rA + 1, cA);
+          nx += n.nx; ny += n.ny; nz += n.nz; count++;
+        }
+        if (count === 0) {
+          // top/bottom edge — use radial outward as fallback
+          const p = layers[liList[ri]][siList[ci]];
+          const m = Math.hypot(p.x, p.y) || 1;
+          nx = p.x / m; ny = p.y / m; nz = 0;
+        } else {
+          const m = Math.hypot(nx, ny, nz) || 1;
+          nx /= m; ny /= m; nz /= m;
+        }
+        const idx = (ri * cols + ci) * 3;
+        vNorm[idx] = nx; vNorm[idx + 1] = ny; vNorm[idx + 2] = nz;
+      }
+    }
+
+    // ---- Pass 2: emit one quad per cell, with a linear gradient interpolating shade
+    //               between two opposite corners (cheap Gouraud-ish).
+    const shadeFor = (nx, ny, nz) => {
+      const rn = rotateNormal(nx, ny, nz);
+      const l = Math.max(0, rn.x * lightDir.x + rn.y * lightDir.y + rn.z * lightDir.z);
+      return 0.22 + 0.78 * l;
+    };
+    const colFor = (s) => {
+      const r1 = Math.round(70 + s * 180);
+      const g1 = Math.round(55 + s * 140);
+      const b1 = Math.round(40 + s * 95);
+      return `rgb(${r1},${g1},${b1})`;
+    };
+    let gradId = 0;
+    for (let ri = 0; ri < rows - 1; ri++) {
+      const riNext = ri + 1;
+      for (let ci = 0; ci < cols; ci++) {
+        const ciNext = (ci + 1) % cols;
+        const a = layers[liList[ri]][siList[ci]];
+        const b = layers[liList[ri]][siList[ciNext]];
+        const c = layers[liList[riNext]][siList[ciNext]];
+        const d = layers[liList[riNext]][siList[ci]];
+        // shades at the four corners using per-vertex normals
+        const iA = (ri * cols + ci) * 3;
+        const iB = (ri * cols + ciNext) * 3;
+        const iC = (riNext * cols + ciNext) * 3;
+        const iD = (riNext * cols + ci) * 3;
+        const sA = toScreen(a.x, a.y, a.z);
+        const sB = toScreen(b.x, b.y, b.z);
+        const sC = toScreen(c.x, c.y, c.z);
+        const sD = toScreen(d.x, d.y, d.z);
+        // Back-face cull: average the four corner normals and test their camera-space
+        // depth component. In our projection larger depth = closer to viewer, so a
+        // normal whose depth component is negative points away from the camera.
+        const avgNx = (vNorm[iA] + vNorm[iB] + vNorm[iC] + vNorm[iD]) / 4;
+        const avgNy = (vNorm[iA + 1] + vNorm[iB + 1] + vNorm[iC + 1] + vNorm[iD + 1]) / 4;
+        const avgNz = (vNorm[iA + 2] + vNorm[iB + 2] + vNorm[iC + 2] + vNorm[iD + 2]) / 4;
+        const camN = rotateNormal(avgNx, avgNy, avgNz);
+        const isBack = camN.z < -0.05;
+        // Render back-facing quads too — they form the visible inside wall when
+        // looking down through the open top. They use the inverted normal for
+        // shading (the inside surface faces inward, so flip for correct light)
+        // and are tinted darker to read as ambient-lit interior.
+        const shA = shadeFor(
+          isBack ? -vNorm[iA] : vNorm[iA],
+          isBack ? -vNorm[iA + 1] : vNorm[iA + 1],
+          isBack ? -vNorm[iA + 2] : vNorm[iA + 2]
+        );
+        const shB = shadeFor(
+          isBack ? -vNorm[iB] : vNorm[iB],
+          isBack ? -vNorm[iB + 1] : vNorm[iB + 1],
+          isBack ? -vNorm[iB + 2] : vNorm[iB + 2]
+        );
+        const shC = shadeFor(
+          isBack ? -vNorm[iC] : vNorm[iC],
+          isBack ? -vNorm[iC + 1] : vNorm[iC + 1],
+          isBack ? -vNorm[iC + 2] : vNorm[iC + 2]
+        );
+        const shD = shadeFor(
+          isBack ? -vNorm[iD] : vNorm[iD],
+          isBack ? -vNorm[iD + 1] : vNorm[iD + 1],
+          isBack ? -vNorm[iD + 2] : vNorm[iD + 2]
+        );
+        // Inside walls: dim the shade so the interior reads darker than exterior
+        const interiorMul = isBack ? 0.55 : 1;
+        const sh1 = ((shA + shB) / 2) * interiorMul;
+        const sh2 = ((shC + shD) / 2) * interiorMul;
+        const depth = (sA.depth + sB.depth + sC.depth + sD.depth) / 4;
+        // If shades are nearly identical, skip gradient (saves DOM nodes)
+        const useGrad = Math.abs(sh1 - sh2) > 0.04;
+        const fill1 = colFor(sh1);
+        const fill2 = colFor(sh2);
+        faces.push({
+          sA, sB, sC, sD, depth, isBack,
+          useGrad, fill1, fill2,
+          // gradient runs top-edge midpoint → bottom-edge midpoint
+          gx1: (sA.x + sB.x) / 2, gy1: (sA.y + sB.y) / 2,
+          gx2: (sD.x + sC.x) / 2, gy2: (sD.y + sC.y) / 2,
+          gid: 'q' + (gradId++),
+        });
+      }
+    }
+    faces.sort((p, q) => p.depth - q.depth);
+  }
+
+  // Silhouette: left + right profile (at current yaw, max x projection)
+  // Approximate by taking, for each layer, the points whose screen-x is min and max
+  const leftSil = [], rightSil = [];
+  for (let li = 0; li < layers.length; li++) {
+    const ring = layers[li];
+    let minP = null, maxP = null;
+    for (const p of ring) {
+      const s = toScreen(p.x, p.y, p.z);
+      if (!minP || s.x < minP.x) minP = s;
+      if (!maxP || s.x > maxP.x) maxP = s;
+    }
+    leftSil.push(minP);
+    rightSil.push(maxP);
+  }
+
+  // Base disc: top ring of base (bottom layer) with subtle oval shading
+  const baseRing = layers[0];
+  const basePts = baseRing.map(p => toScreen(p.x, p.y, p.z));
+
+  // Print nozzle: at top of currently visible layers, at angle based on progress
+  let nozzle = null;
+  if (progress > 0 && progress < 1) {
+    const li = Math.min(layers.length - 1, visibleLayerCount);
+    const ring = layers[li];
+    const localT = (progress * layers.length) - Math.floor(progress * layers.length);
+    const si = Math.floor(localT * ring.length);
+    nozzle = toScreen(ring[si].x, ring[si].y, ring[si].z);
+  }
+
+  // Floor shadow ellipse
+  const floorR = maxR;
+  const floorPts = [];
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * Math.PI * 2;
+    floorPts.push(toScreen(Math.cos(a) * floorR, Math.sin(a) * floorR, 0));
+  }
+  const floorD = 'M' + floorPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('L') + 'Z';
+
+  return (
+    <svg
+      width={width} height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      style={{ display: 'block', background: P3D_COLORS.bg, cursor: dragging.current ? 'grabbing' : 'grab', userSelect: 'none' }}
+      onMouseDown={onDown}
+      onTouchStart={onDown}
+    >
+      <defs>
+        <pattern id="p3d-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M 40 0 L 0 0 0 40" fill="none" stroke={P3D_COLORS.grid} strokeWidth="1"/>
+        </pattern>
+        <radialGradient id="p3d-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor={P3D_COLORS.layer} stopOpacity="0.15"/>
+          <stop offset="100%" stopColor={P3D_COLORS.layer} stopOpacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width={width} height={height} fill="url(#p3d-grid)"/>
+      {/* glow around vase */}
+      <ellipse cx={cx} cy={cy - totalHeight * scale * 0.4} rx={maxR * scale * 2.2} ry={totalHeight * scale * 0.9} fill="url(#p3d-glow)"/>
+
+      {/* floor shadow */}
+      <path d={floorD} fill="#000" opacity="0.45" filter="blur(2px)"/>
+
+      {/* solid base disc (printed first) */}
+      <path d={'M' + basePts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('L') + 'Z'}
+        fill={P3D_COLORS.base} stroke={P3D_COLORS.baseStroke} strokeWidth="1.2"/>
+
+      {/* layer contours (wire mode) */}
+      {renderMode === 'wire' && (
+        <g>
+          {layerPaths.map((lp, i) => {
+            const opacity = 0.38 + lp.t * 0.55;
+            return (
+              <path key={i} d={lp.d}
+                fill="none"
+                stroke={P3D_COLORS.layer}
+                strokeWidth="0.9"
+                opacity={opacity}
+              />
+            );
+          })}
+        </g>
+      )}
+
+      {/* solid shaded faces */}
+      {renderMode === 'solid' && (
+        <g>
+          <defs>
+            {faces.filter(f => f.useGrad).map(f => (
+              <linearGradient key={f.gid} id={f.gid}
+                gradientUnits="userSpaceOnUse"
+                x1={f.gx1.toFixed(1)} y1={f.gy1.toFixed(1)}
+                x2={f.gx2.toFixed(1)} y2={f.gy2.toFixed(1)}>
+                <stop offset="0%" stopColor={f.fill1}/>
+                <stop offset="100%" stopColor={f.fill2}/>
+              </linearGradient>
+            ))}
+          </defs>
+          {faces.map((f, i) => {
+            const fill = f.useGrad ? `url(#${f.gid})` : f.fill1;
+            return (
+              <polygon key={i}
+                points={`${f.sA.x.toFixed(1)},${f.sA.y.toFixed(1)} ${f.sB.x.toFixed(1)},${f.sB.y.toFixed(1)} ${f.sC.x.toFixed(1)},${f.sC.y.toFixed(1)} ${f.sD.x.toFixed(1)},${f.sD.y.toFixed(1)}`}
+                fill={fill}
+                stroke={f.fill1}
+                strokeWidth="0.4"
+              />
+            );
+          })}
+        </g>
+      )}
+
+      {/* back silhouette faint (wire only) */}
+      {renderMode === 'wire' && (
+        <>
+          <path
+            d={'M' + leftSil.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('L')}
+            fill="none" stroke={P3D_COLORS.silhouette} strokeWidth="1.4" opacity="0.35"
+          />
+          <path
+            d={'M' + rightSil.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('L')}
+            fill="none" stroke={P3D_COLORS.silhouette} strokeWidth="1.4" opacity="0.35"
+          />
+        </>
+      )}
+
+      {/* nozzle */}
+      {nozzle && (
+        <g>
+          <line x1={nozzle.x} y1={nozzle.y - 30} x2={nozzle.x} y2={nozzle.y}
+            stroke={P3D_COLORS.accent} strokeWidth="2"/>
+          <polygon points={`${nozzle.x - 5},${nozzle.y - 30} ${nozzle.x + 5},${nozzle.y - 30} ${nozzle.x + 2},${nozzle.y - 24} ${nozzle.x - 2},${nozzle.y - 24}`}
+            fill={P3D_COLORS.accent}/>
+          <circle cx={nozzle.x} cy={nozzle.y} r={3} fill={P3D_COLORS.accent}/>
+          <circle cx={nozzle.x} cy={nozzle.y} r={7} fill="none" stroke={P3D_COLORS.accent} strokeWidth="1" opacity="0.5"/>
+        </g>
+      )}
+
+      {/* axis indicator bottom-left */}
+      <g transform={`translate(40, ${height - 40})`}>
+        <line x1="0" y1="0" x2="24" y2="0" stroke="#e63946" strokeWidth="2"/>
+        <line x1="0" y1="0" x2="0" y2="-24" stroke="#f5d547" strokeWidth="2"/>
+        <line x1="0" y1="0" x2="-12" y2="10" stroke="#3a86ff" strokeWidth="2"/>
+        <text x="28" y="3" fill="#e63946" fontSize="10" fontFamily="ui-monospace, monospace">X</text>
+        <text x="3" y="-26" fill="#f5d547" fontSize="10" fontFamily="ui-monospace, monospace">Z</text>
+        <text x="-22" y="18" fill="#3a86ff" fontSize="10" fontFamily="ui-monospace, monospace">Y</text>
+      </g>
+
+      {/* corner labels */}
+      <text x="16" y="24" fill={P3D_COLORS.label} fontSize="10" fontFamily="ui-monospace, monospace" letterSpacing="1">
+        PREVIEW
+      </text>
+
+    </svg>
+  );
+}
+
+window.Preview3D = Preview3D;
+
+})();
+</script>
+<script type="text/babel" data-presets="env,react">
+(() => {
+// ProfilePanel.jsx — side silhouette view showing 2D profile of the vase
+// Includes scrubber UI for print sequence.
+
+function ProfilePanel({ vase, progress, onProgressChange, playing, onTogglePlay, width = 300, height = 360 }) {
+  if (!vase) return null;
+  const { layers, params } = vase;
+  const h = params.height;
+  const maxR = Math.max(...layers.map(r => Math.max(...r.map(p => p.r))));
+
+  const padTop = 14, padBot = 28, padL = 40, padR = 20;
+  const drawH = height - padTop - padBot;
+  const drawW = width - padL - padR;
+  const scale = Math.min(drawW / (maxR * 2.2), drawH / h);
+
+  const cx = padL + drawW / 2;
+  const by = padTop + drawH;
+
+  // Sample ~80 heights along the silhouette — use the max radius at each layer at theta=0
+  const samples = 60;
+  const leftPts = [], rightPts = [];
+  for (let i = 0; i < samples; i++) {
+    const t = i / (samples - 1);
+    const li = Math.min(layers.length - 1, Math.round(t * (layers.length - 1)));
+    // average r at 0 and pi direction to look more accurate
+    const ring = layers[li];
+    const r0 = ring[0].r;
+    const rHalf = ring[Math.floor(ring.length / 2)].r;
+    const r = (r0 + rHalf) / 2;
+    const y = by - li * (h / layers.length) * scale;
+    leftPts.push({ x: cx - r * scale, y });
+    rightPts.push({ x: cx + r * scale, y });
+  }
+
+  const dSil = 'M' + leftPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('L') +
+    'L' + rightPts.slice().reverse().map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join('L') + 'Z';
+
+  const progressY = by - progress * h * scale;
+
+  const clickBar = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+    const t = 1 - (y - padTop) / drawH;
+    onProgressChange(Math.max(0, Math.min(1, t)));
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <svg width={width} height={height} style={{ display: 'block', background: '#f3ede1' }}
+        onMouseDown={(e) => { clickBar(e); const mm = (ev) => clickBar(ev); const mu = () => { window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', mu); }; window.addEventListener('mousemove', mm); window.addEventListener('mouseup', mu); }}
+      >
+        {/* ruler */}
+        <g fontFamily="ui-monospace, monospace" fontSize="9" fill="#6b6559">
+          {[0, 0.25, 0.5, 0.75, 1].map(t => {
+            const y = by - t * h * scale;
+            const mm = (t * h).toFixed(0);
+            return (
+              <g key={t}>
+                <line x1={padL - 6} y1={y} x2={padL - 2} y2={y} stroke="#0b0a08" strokeWidth="1"/>
+                <text x={padL - 8} y={y + 3} textAnchor="end">{mm}</text>
+              </g>
+            );
+          })}
+          <text x={padL - 8} y={by + 16} textAnchor="end">mm</text>
+        </g>
+
+        {/* centerline */}
+        <line x1={cx} y1={padTop} x2={cx} y2={by} stroke="#c0b39a" strokeDasharray="2,3" strokeWidth="1"/>
+
+        {/* silhouette fill */}
+        <path d={dSil} fill="#e5c300" stroke="#0b0a08" strokeWidth="1.6"/>
+
+        {/* unprinted region overlay */}
+        <rect x={padL} y={padTop} width={drawW} height={progressY - padTop}
+          fill="#f3ede1" opacity="0.78" pointerEvents="none"/>
+
+        {/* progress line */}
+        <line x1={padL} y1={progressY} x2={padL + drawW} y2={progressY}
+          stroke="#e63946" strokeWidth="2"/>
+        <circle cx={padL + drawW + 2} cy={progressY} r={5} fill="#e63946" stroke="#0b0a08" strokeWidth="1.2"/>
+
+        {/* base indicator */}
+        <rect x={cx - maxR * scale * 0.9} y={by} width={maxR * scale * 1.8} height={3}
+          fill="#0b0a08"/>
+
+        {/* height label */}
+        <text x={width - padR - 2} y={padTop - 2} textAnchor="end" fontFamily="ui-monospace, monospace" fontSize="10" fill="#0b0a08">
+          {h.toFixed(0)}mm
+        </text>
+      </svg>
+
+      {/* playback controls */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+        background: '#0b0a08', color: '#f3ede1', borderTop: '2px solid #0b0a08',
+      }}>
+        <button
+          onClick={onTogglePlay}
+          style={{
+            width: 36, height: 36, borderRadius: '50%', border: '2px solid #f3ede1',
+            background: playing ? '#e63946' : '#e5c300', color: '#0b0a08',
+            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 0, flexShrink: 0,
+          }}
+          aria-label={playing ? 'Pause' : 'Play'}
+        >
+          {playing ? (
+            <svg width="12" height="14" viewBox="0 0 12 14"><rect x="1" y="1" width="3.5" height="12" fill="#0b0a08"/><rect x="7.5" y="1" width="3.5" height="12" fill="#0b0a08"/></svg>
+          ) : (
+            <svg width="12" height="14" viewBox="0 0 12 14"><polygon points="1,1 11,7 1,13" fill="#0b0a08"/></svg>
+          )}
+        </button>
+        <input
+          type="range" min="0" max="1000" value={Math.round(progress * 1000)}
+          onChange={(e) => onProgressChange(parseInt(e.target.value) / 1000)}
+          style={{ flex: 1, accentColor: '#e63946' }}
+        />
+        <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, minWidth: 40, textAlign: 'right' }}>
+          {Math.round(progress * 100)}%
+        </span>
+      </div>
+    </div>
+  );
+}
+
+window.ProfilePanel = ProfilePanel;
+
+})();
+</script>
+<script type="text/babel" data-presets="env,react">
+(() => {
+// App.jsx — main VASEWORKS app
+
+const C = window.BAUHAUS_C;
+const { generateVase, PRESETS, stlFromVase } = window.VaseGeom;
+
+const DEFAULTS = /*EDITMODE-BEGIN*/{
+  "preset": "tumbler",
+  "density": "medium",
+  "accentColor": "red",
+  "gridBg": true
+}/*EDITMODE-END*/;
+
+function formatTime(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function Stat({ label, value, unit }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', padding: '10px 12px',
+      border: `2px solid ${C.ink}`, background: C.paper, flex: 1, minWidth: 0,
+    }}>
+      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>
+        {label}
+      </span>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, marginTop: 2 }}>
+        <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 18, fontWeight: 700, color: C.ink, lineHeight: 1 }}>
+          {value}
+        </span>
+        {unit && (
+          <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, color: C.muted }}>
+            {unit}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Toast({ message, onClose }) {
+  React.useEffect(() => {
+    if (!message) return;
+    const t = setTimeout(onClose, 3200);
+    return () => clearTimeout(t);
+  }, [message]);
+  if (!message) return null;
+  return (
+    <div style={{
+      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+      background: C.ink, color: C.paper, padding: '12px 18px',
+      border: `2px solid ${C.yellow}`, display: 'flex', alignItems: 'center', gap: 10,
+      boxShadow: `4px 4px 0 ${C.yellow}`,
+      zIndex: 1000,
+    }}>
+      <div style={{ width: 14, height: 14, background: C.yellow, border: `2px solid ${C.paper}` }}/>
+      <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.04em' }}>{message}</span>
+    </div>
+  );
+}
+
+function Header({ onExport, preset, onPresetChange, units }) {
+  return (
+    <header style={{
+      display: 'flex', alignItems: 'stretch',
+      borderBottom: `3px solid ${C.ink}`, background: C.paper,
+      height: 64, flexShrink: 0,
+    }}>
+      {/* Logo block */}
+      <div style={{
+        width: 220, display: 'flex', alignItems: 'center', gap: 12,
+        padding: '0 18px', borderRight: `3px solid ${C.ink}`, background: C.yellow,
+      }}>
+        <svg width="32" height="32" viewBox="0 0 32 32">
+          <rect x="1" y="1" width="30" height="30" fill={C.paper} stroke={C.ink} strokeWidth="2"/>
+          {/* vase cross-section silhouette */}
+          <path d="M10 5 L10 8 Q7 11 7 15 Q7 22 9 25 L9 27 L23 27 L23 25 Q25 22 25 15 Q25 11 22 8 L22 5 Z"
+            fill={C.red} stroke={C.ink} strokeWidth="1.5" strokeLinejoin="miter"/>
+          {/* inner wall line to show section */}
+          <path d="M12 6 L12 8 Q9 11 9 15 Q9 21 11 24"
+            fill="none" stroke={C.ink} strokeWidth="1" opacity="0.6"/>
+          {/* horizontal base line */}
+          <line x1="9" y1="25" x2="23" y2="25" stroke={C.ink} strokeWidth="1"/>
+        </svg>
+        <div>
+          <div style={{ fontSize: 17, fontWeight: 900, letterSpacing: '0.02em', lineHeight: 1 }}>VASEWORKS</div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: C.muted, marginTop: 3 }}>
+            spiral / vase mode studio
+          </div>
+        </div>
+      </div>
+
+      {/* Preset selector */}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0 18px', gap: 14, flex: 1, borderRight: `3px solid ${C.ink}` }}>
+        <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.muted }}>
+          Preset
+        </span>
+        <div style={{ display: 'flex', border: `2px solid ${C.ink}` }}>
+          {Object.keys(PRESETS).map((name, i) => (
+            <button key={name}
+              onClick={() => onPresetChange(name)}
+              style={{
+                padding: '6px 11px',
+                background: preset === name ? C.ink : C.paper,
+                color: preset === name ? C.paper : C.ink,
+                border: 'none', borderRight: i < Object.keys(PRESETS).length - 1 ? `2px solid ${C.ink}` : 'none',
+                fontFamily: 'inherit', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer',
+              }}
+            >{name}</button>
+          ))}
+        </div>
+        <div style={{ flex: 1 }}/>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>
+          <div style={{ width: 6, height: 6, background: C.blue }}/>
+          Units · {units}
+        </div>
+      </div>
+
+      {/* Export */}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px' }}>
+        <button onClick={onExport}
+          style={{
+            padding: '10px 18px', background: C.red, color: C.paper,
+            border: `2px solid ${C.ink}`, fontFamily: 'inherit', fontWeight: 900,
+            fontSize: 13, letterSpacing: '0.12em', textTransform: 'uppercase',
+            cursor: 'pointer', boxShadow: `4px 4px 0 ${C.ink}`,
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1 V9 M3 6 L7 10 L11 6 M1 12 H13" stroke={C.paper} strokeWidth="2" fill="none"/></svg>
+          Export STL
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function ParamPanel({ p, setP }) {
+  const upd = (k) => (v) => setP({ ...p, [k]: v });
+  return (
+    <div style={{ padding: 18, overflowY: 'auto', height: '100%' }}>
+      <Section title="Silhouette" dotColor={C.red}>
+        <Slider label="Height" unit="mm" value={p.height} min={30} max={250} step={1} onChange={upd('height')} color={C.red}/>
+        <Slider label="Bottom radius" unit="mm" value={p.bottomRadius} min={8} max={60} step={0.5} onChange={upd('bottomRadius')} color={C.red}/>
+        <Slider label="Top radius" unit="mm" value={p.topRadius} min={8} max={60} step={0.5} onChange={upd('topRadius')} color={C.red}/>
+        <Slider label="Waist pinch" value={p.waistPinch} min={-1} max={1} step={0.05} onChange={upd('waistPinch')} color={C.red}/>
+        <Slider label="Waist position" value={p.waistHeight} min={0.1} max={0.9} step={0.01} onChange={upd('waistHeight')} color={C.red}/>
+      </Section>
+
+      <Section title="Print" dotColor={C.blue}>
+        <Slider label="Layer height" unit="mm" value={p.layerHeight} min={0.1} max={0.6} step={0.05} onChange={upd('layerHeight')} color={C.blue}/>
+        <Slider label="Wall perimeter segments" value={p.segments} min={32} max={192} step={8} onChange={upd('segments')} color={C.blue}/>
+        <Slider label="Wall thickness" unit="mm" value={p.wallThickness} min={0.4} max={2.4} step={0.1} onChange={upd('wallThickness')} color={C.blue}/>
+      </Section>
+
+      <Section title="Surface modifiers" dotColor={C.yellow}>
+        <ModifierCard title="Vertical Flutes" shape="lines" enabled={p.flutesEnabled} onToggle={upd('flutesEnabled')} color={C.red}>
+          <Slider label="Count" value={p.flutesCount} min={4} max={48} step={1} onChange={upd('flutesCount')} color={C.red}/>
+          <Slider label="Depth" unit="mm" value={p.flutesDepth} min={0.3} max={6} step={0.1} onChange={upd('flutesDepth')} color={C.red}/>
+        </ModifierCard>
+
+        <ModifierCard title="Horizontal Waves" shape="wave" enabled={p.wavesEnabled} onToggle={upd('wavesEnabled')} color={C.blue}>
+          <Slider label="Frequency" value={p.wavesFreq} min={1} max={30} step={1} onChange={upd('wavesFreq')} color={C.blue}/>
+          <Slider label="Amplitude" unit="mm" value={p.wavesAmp} min={0.2} max={5} step={0.1} onChange={upd('wavesAmp')} color={C.blue}/>
+        </ModifierCard>
+
+        <ModifierCard title="Faceted Cross-Section" shape="triangle" enabled={p.facetsEnabled} onToggle={upd('facetsEnabled')} color={C.yellow}>
+          <Slider label="Sides" value={p.facetsSides} min={3} max={16} step={1} onChange={upd('facetsSides')} color={C.yellow}/>
+          <Slider label="Sharpness" value={p.facetsSharpness} min={0} max={1} step={0.02} onChange={upd('facetsSharpness')} color={C.yellow}/>
+        </ModifierCard>
+
+        <ModifierCard title="Twist" shape="twist" enabled={p.twistEnabled} onToggle={upd('twistEnabled')} color={C.teal}>
+          <Slider label="Total rotation" unit="°" value={p.twistDegrees} min={-720} max={720} step={5} onChange={upd('twistDegrees')} color={C.teal}/>
+        </ModifierCard>
+
+        <ModifierCard title="Organic Lumps" shape="lumps" enabled={p.lumpsEnabled} onToggle={upd('lumpsEnabled')} color={C.red}>
+          <Slider label="Amount" unit="mm" value={p.lumpsAmount} min={0.2} max={6} step={0.1} onChange={upd('lumpsAmount')} color={C.red}/>
+          <Slider label="Seed" value={p.lumpsSeed} min={1} max={30} step={1} onChange={upd('lumpsSeed')} color={C.red}/>
+        </ModifierCard>
+
+        <ModifierCard title="Helical Spiral Ribs" shape="spiral" enabled={p.spiralEnabled} onToggle={upd('spiralEnabled')} color={C.blue}>
+          <Slider label="Rib count" value={p.spiralCount} min={1} max={12} step={1} onChange={upd('spiralCount')} color={C.blue}/>
+          <Slider label="Depth" unit="mm" value={p.spiralDepth} min={0.3} max={5} step={0.1} onChange={upd('spiralDepth')} color={C.blue}/>
+          <Slider label="Pitch" unit="mm/rev" value={p.spiralPitch} min={10} max={120} step={2} onChange={upd('spiralPitch')} color={C.blue}/>
+        </ModifierCard>
+
+        <ModifierCard title="Embossed Pattern" shape="diamond" enabled={p.embossEnabled} onToggle={upd('embossEnabled')} color={C.yellow}>
+          <Select label="Pattern" value={p.embossPattern}
+            options={[{ value: 'diamond', label: 'Diamond Grid' }, { value: 'hex', label: 'Hex Grid' }]}
+            onChange={upd('embossPattern')}/>
+          <Slider label="Tile size" unit="mm" value={p.embossScale} min={5} max={40} step={1} onChange={upd('embossScale')} color={C.yellow}/>
+          <Slider label="Depth" unit="mm" value={p.embossDepth} min={0.2} max={3} step={0.1} onChange={upd('embossDepth')} color={C.yellow}/>
+        </ModifierCard>
+      </Section>
+    </div>
+  );
+}
+
+function App() {
+  const [p, setP] = React.useState(() => {
+    const saved = localStorage.getItem('vaseworks_params');
+    if (saved) try { return JSON.parse(saved); } catch (e) {}
+    return { ...PRESETS.tumbler, layerHeight: 0.3, segments: 96, wallThickness: 1.2 };
+  });
+  const [preset, setPreset] = React.useState('tumbler');
+  const [progress, setProgress] = React.useState(1);
+  const [playing, setPlaying] = React.useState(false);
+  const [yaw, setYaw] = React.useState(0.4);
+  const [pitch, setPitch] = React.useState(-0.55);
+  const [renderMode, setRenderMode] = React.useState('wire');
+  const [toast, setToast] = React.useState(null);
+
+  // autoplay
+  React.useEffect(() => {
+    if (!playing) return;
+    let raf;
+    let last = performance.now();
+    const tick = (now) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      setProgress(prev => {
+        const next = prev + dt * 0.18;
+        if (next >= 1) { setPlaying(false); return 1; }
+        return next;
+      });
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
+
+  // persist
+  React.useEffect(() => {
+    localStorage.setItem('vaseworks_params', JSON.stringify(p));
+  }, [p]);
+
+  const onPreset = (name) => {
+    setPreset(name);
+    setP(prev => ({ ...prev, ...PRESETS[name] }));
+  };
+
+  const vase = React.useMemo(() => generateVase(p), [p]);
+
+  const onExport = () => {
+    const name = preset.replace(/\s/g, '_') + '_' + Date.now().toString(36);
+    const buffer = stlFromVase(vase);
+    const blob = new Blob([buffer], { type: 'model/stl' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name}.stl`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setToast(`STL exported · ${name}.stl · ${vase.stats.filamentMeters.toFixed(1)}m filament`);
+  };
+
+  return (
+    <div style={{
+      width: '100vw', height: '100vh', background: C.soft, color: C.ink,
+      fontFamily: '"Space Grotesk", system-ui, sans-serif',
+      display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    }}>
+      <Header onExport={onExport} preset={preset} onPresetChange={onPreset} units="mm"/>
+
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {/* Left: parameters */}
+        <aside style={{
+          width: 340, background: C.paper, borderRight: `3px solid ${C.ink}`,
+          display: 'flex', flexDirection: 'column', minHeight: 0,
+        }}>
+          <ParamPanel p={p} setP={setP}/>
+        </aside>
+
+        {/* Center: 3D preview */}
+        <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#0d0f10' }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
+            <AutoSizePreview vase={vase} progress={progress} yaw={yaw} pitch={pitch} setYaw={setYaw} setPitch={setPitch} renderMode={renderMode}/>
+            {/* corner cluster: orbit quick-reset — bottom right */}
+            <div style={{ position: 'absolute', bottom: 14, right: 14, display: 'flex', gap: 8, zIndex: 2 }}>
+              {[[0, -0.55, 'front'], [Math.PI / 2, -0.55, 'side'], [0, -1.2, 'top']].map(([y, pt, label]) => (
+                <button key={label}
+                  onClick={() => { setYaw(y); setPitch(pt); }}
+                  style={{
+                    padding: '5px 10px', background: C.paper, color: C.ink,
+                    border: `2px solid ${C.ink}`, fontFamily: 'inherit',
+                    fontWeight: 700, fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    boxShadow: `2px 2px 0 ${C.ink}`,
+                  }}
+                >{label}</button>
+              ))}
+            </div>
+            {/* render mode toggle — top right */}
+            <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', alignItems: 'center', gap: 10, zIndex: 2 }}>
+              <div style={{ display: 'flex', gap: 0, border: `2px solid ${C.ink}`, boxShadow: `2px 2px 0 ${C.ink}` }}>
+                {[['wire', 'Wire'], ['solid', 'Solid']].map(([val, lbl], i) => (
+                  <button key={val}
+                    onClick={() => setRenderMode(val)}
+                    style={{
+                      padding: '6px 12px',
+                      background: renderMode === val ? C.ink : C.paper,
+                      color: renderMode === val ? C.paper : C.ink,
+                      border: 'none', borderLeft: i === 0 ? 'none' : `2px solid ${C.ink}`,
+                      fontFamily: 'inherit', fontWeight: 800, fontSize: 10,
+                      letterSpacing: '0.12em', textTransform: 'uppercase', cursor: 'pointer',
+                    }}
+                  >{lbl}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom: stats strip */}
+          <div style={{
+            background: C.paper, borderTop: `3px solid ${C.ink}`, padding: 12,
+            display: 'flex', gap: 10, flexShrink: 0,
+          }}>
+            <Stat label="Layers" value={vase.stats.layerCount} unit=""/>
+            <Stat label="Layer h" value={p.layerHeight.toFixed(2)} unit="mm"/>
+            <Stat label="Path" value={vase.stats.pathLengthM.toFixed(1)} unit="m"/>
+            <Stat label="Filament" value={vase.stats.filamentMeters.toFixed(1)} unit="m"/>
+            <Stat label="Weight" value={vase.stats.weightGrams.toFixed(0)} unit="g"/>
+            <Stat label="Print time" value={formatTime(vase.stats.timeSeconds)} unit=""/>
+            <Stat label="Mode" value="Spiral" unit=""/>
+          </div>
+        </main>
+
+        {/* Right: profile + scrubber */}
+        <aside style={{
+          width: 300, background: C.paper, borderLeft: `3px solid ${C.ink}`,
+          display: 'flex', flexDirection: 'column', minHeight: 0,
+        }}>
+          <div style={{ padding: '12px 14px', borderBottom: `2px solid ${C.ink}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, background: C.yellow, border: `1.5px solid ${C.ink}` }}/>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+              Profile
+            </span>
+            <div style={{ flex: 1 }}/>
+            <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, color: C.muted }}>
+              side view
+            </span>
+          </div>
+          <ProfilePanel vase={vase} progress={progress} onProgressChange={setProgress}
+            playing={playing} onTogglePlay={() => setPlaying(!playing)}
+            width={300} height={360}/>
+
+          <div style={{ padding: '12px 14px', borderTop: `2px solid ${C.ink}`, borderBottom: `2px solid ${C.ink}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, background: C.red, border: `1.5px solid ${C.ink}` }}/>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+              Print sequence
+            </span>
+          </div>
+
+          {/* Layer readout */}
+          <div style={{ padding: 14, flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{
+              padding: 10, border: `2px solid ${C.ink}`, background: C.soft,
+              display: 'flex', flexDirection: 'column', gap: 4,
+            }}>
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.muted }}>
+                Current layer
+              </span>
+              <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 24, fontWeight: 700 }}>
+                {Math.round(progress * vase.stats.layerCount).toString().padStart(4, '0')}
+                <span style={{ fontSize: 13, color: C.muted }}> / {vase.stats.layerCount}</span>
+              </span>
+              <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11, color: C.muted }}>
+                Z = {(progress * p.height).toFixed(2)} mm
+              </span>
+            </div>
+
+            <div style={{
+              padding: 10, border: `2px solid ${C.ink}`, background: C.paper,
+              display: 'flex', flexDirection: 'column', gap: 4,
+            }}>
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.muted }}>
+                Elapsed
+              </span>
+              <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 14, fontWeight: 700 }}>
+                {formatTime(vase.stats.timeSeconds * progress)} / {formatTime(vase.stats.timeSeconds)}
+              </span>
+            </div>
+
+            <div style={{ marginTop: 'auto', padding: 10, border: `2px dashed ${C.ink}`, background: C.paper }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted, marginBottom: 4 }}>
+                Vase mode
+              </div>
+              <div style={{ fontSize: 11, lineHeight: 1.5, color: C.ink }}>
+                Single-wall spiral. One continuous extrusion path climbs
+                {' '}<strong>{p.height.toFixed(0)}mm</strong> without a Z-seam.
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <Toast message={toast} onClose={() => setToast(null)}/>
+    </div>
+  );
+}
+
+function AutoSizePreview({ vase, progress, yaw, pitch, setYaw, setPitch, renderMode }) {
+  const ref = React.useRef(null);
+  const [size, setSize] = React.useState({ w: 800, h: 600 });
+  React.useEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(() => {
+      if (ref.current) setSize({ w: ref.current.clientWidth, h: ref.current.clientHeight });
+    });
+    ro.observe(ref.current);
+    setSize({ w: ref.current.clientWidth, h: ref.current.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={ref} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+      <Preview3D vase={vase} progress={progress}
+        yaw={yaw} pitch={pitch}
+        onYawChange={setYaw} onPitchChange={setPitch}
+        renderMode={renderMode}
+        width={size.w} height={size.h}/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+
+})();
+</script>
+</body>
+</html>

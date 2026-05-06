@@ -1,0 +1,21 @@
+{
+  "name": "vaseworks",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vaseworks — a browser-based vase-mode STL studio for generating 3D-printable vase geometry.",
+  "type": "module",
+  "scripts": {
+    "dev": "serve src -l 5173",
+    "start": "npm run dev",
+    "build": "node scripts/build.mjs",
+    "preview": "serve dist -l 4173",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.5",
+    "serve": "^14.2.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
