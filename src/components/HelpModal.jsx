@@ -1,5 +1,8 @@
 import React from 'react';
 import { C, Section } from './Controls.jsx';
+import pkg from '../../package.json';
+
+const SHORT_VERSION = pkg.version.split('.').slice(0, 2).join('.');
 
 export function HelpModal({ open, onClose, returnFocusRef }) {
   const closeBtnRef = React.useRef(null);
@@ -65,7 +68,7 @@ export function HelpModal({ open, onClose, returnFocusRef }) {
           background: C.paper,
           border: `3px solid ${C.ink}`,
           boxShadow: `8px 8px 0 ${C.yellow}`,
-          maxWidth: 720, width: '100%', maxHeight: '90vh',
+          maxWidth: 780, width: '100%', maxHeight: '90vh',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
         }}
@@ -169,6 +172,31 @@ export function HelpModal({ open, onClose, returnFocusRef }) {
             Settings vary by slicer version. If you don't see vase mode, search your slicer's
             settings for <Em>spiral</Em> or <Em>vase</Em>.
           </div>
+        </div>
+
+        <div style={{
+          flexShrink: 0,
+          padding: '8px 22px',
+          borderTop: `1px solid ${C.ink}`,
+          background: C.paper,
+          fontSize: 10.5, color: C.muted,
+          textAlign: 'center', letterSpacing: '0.04em',
+        }}>
+          Vaseworks v{SHORT_VERSION}{' · '}
+          Designed by{' '}
+          <a
+            href="https://www.spencer-russell.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: C.ink, fontWeight: 700, textDecoration: 'underline' }}
+          >Spencer Russell</a>
+          {' · '}
+          <a
+            href="https://github.com/spencerussell/vaseworks"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: C.ink, fontWeight: 700, textDecoration: 'underline' }}
+          >GitHub</a>
         </div>
       </div>
     </div>

@@ -5,6 +5,9 @@ import { Slider, Select, Section, ModifierCard, C } from './components/Controls.
 import { Preview3D } from './components/Preview3D.jsx';
 import { ProfilePanel } from './components/ProfilePanel.jsx';
 import { HelpModal } from './components/HelpModal.jsx';
+import { MyPresetsModal } from './components/MyPresetsModal.jsx';
+import { decodeState, pickShareableState, buildShareUrl, copyTextToClipboard } from './lib/shareState.js';
+import { loadPresets, savePresets, newPresetId } from './lib/presetsStore.js';
 
 const DEFAULTS = /*EDITMODE-BEGIN*/{
   "preset": "tumbler",
@@ -242,7 +245,17 @@ function Toast({ message, onClose }) {
   );
 }
 
-function Header({ onExport, onHelp, helpBtnRef, preset, onPresetChange, units }) {
+function Header({
+  onExport, onShare, shareStatus, onHelp, helpBtnRef,
+  preset, onPresetChange, units,
+  onOpenMyPresets, myPresetsBtnRef,
+  compact,
+}) {
+  const shareTitle =
+    shareStatus === 'copied' ? 'Link copied' :
+    shareStatus === 'error' ? 'Copy failed' :
+    'Share link to this vase';
+  const shareBg = shareStatus === 'copied' ? C.teal : C.blue;
   return (
     <header style={{
       display: 'flex', alignItems: 'stretch',
@@ -274,24 +287,39 @@ function Header({ onExport, onHelp, helpBtnRef, preset, onPresetChange, units })
       </div>
 
       {/* Preset selector */}
-      <div style={{ display: 'flex', alignItems: 'center', padding: '0 18px', gap: 14, flex: 1, borderRight: `3px solid ${C.ink}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0 18px', gap: 14, flex: 1 }}>
         <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.muted }}>
           Preset
         </span>
         <div style={{ display: 'flex', border: `2px solid ${C.ink}` }}>
-          {Object.keys(PRESETS).map((name, i) => (
+          {Object.keys(PRESETS).map((name) => (
             <button key={name}
               onClick={() => onPresetChange(name)}
               style={{
                 padding: '6px 11px',
                 background: preset === name ? C.ink : C.paper,
                 color: preset === name ? C.paper : C.ink,
-                border: 'none', borderRight: i < Object.keys(PRESETS).length - 1 ? `2px solid ${C.ink}` : 'none',
+                border: 'none', borderRight: `2px solid ${C.ink}`,
                 fontFamily: 'inherit', fontSize: 10, fontWeight: 700,
                 letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer',
               }}
             >{name}</button>
           ))}
+          <button
+            ref={myPresetsBtnRef}
+            onClick={onOpenMyPresets}
+            aria-label="Open my presets"
+            style={{
+              padding: '6px 11px',
+              background: C.yellow,
+              color: C.ink,
+              border: 'none',
+              fontFamily: 'inherit', fontSize: 10, fontWeight: 800,
+              letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer',
+            }}
+          >
+            My Presets
+          </button>
         </div>
         <div style={{ flex: 1 }}/>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.muted }}>
@@ -300,15 +328,22 @@ function Header({ onExport, onHelp, helpBtnRef, preset, onPresetChange, units })
         </div>
       </div>
 
-      {/* Help + Export */}
-      <div style={{ display: 'flex', alignItems: 'center', padding: '0 14px', gap: 12 }}>
+      {/* Help + Share + Export — locked to 300px on wide screens (matching
+          right aside) so the left border lines up with the right panel's left
+          edge. On narrow screens we let it shrink so the button doesn't
+          overflow the window. */}
+      <div style={{
+        display: 'flex', alignItems: 'center', padding: '0 14px', gap: 12,
+        width: compact ? 'auto' : 300, flexShrink: 0, justifyContent: 'flex-end',
+        borderLeft: `3px solid ${C.ink}`,
+      }}>
         <button
           ref={helpBtnRef}
           onClick={onHelp}
           aria-label="Slicer setup help"
           title="Slicer setup help"
           style={{
-            width: 38, height: 38, padding: 0,
+            width: 38, height: 38, padding: 0, flexShrink: 0,
             background: C.paper, color: C.ink,
             border: `2px solid ${C.ink}`,
             fontFamily: 'inherit', fontWeight: 900, fontSize: 17,
@@ -319,16 +354,46 @@ function Header({ onExport, onHelp, helpBtnRef, preset, onPresetChange, units })
           }}>
           ?
         </button>
-        <button onClick={onExport}
+        <button onClick={onShare}
+          aria-label={shareStatus === 'copied' ? 'Share link copied to clipboard' : 'Copy shareable link to clipboard'}
+          title={shareTitle}
           style={{
-            padding: '10px 18px', background: C.red, color: C.paper,
+            width: 38, height: 38, padding: 0, flexShrink: 0,
+            background: shareBg, color: C.paper,
+            border: `2px solid ${C.ink}`,
+            cursor: 'pointer', boxShadow: `3px 3px 0 ${C.ink}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'background 0.12s',
+          }}>
+          {shareStatus === 'copied' ? (
+            <svg width="16" height="16" viewBox="0 0 14 14" aria-hidden="true">
+              <path d="M2 7 L6 11 L12 3" stroke={C.paper} strokeWidth="2.5" fill="none" strokeLinecap="square"/>
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 14 14" aria-hidden="true">
+              <circle cx="3" cy="7" r="2" fill="none" stroke={C.paper} strokeWidth="1.6"/>
+              <circle cx="11" cy="3" r="2" fill="none" stroke={C.paper} strokeWidth="1.6"/>
+              <circle cx="11" cy="11" r="2" fill="none" stroke={C.paper} strokeWidth="1.6"/>
+              <path d="M4.7 6 L9.3 3.7 M4.7 8 L9.3 10.3" stroke={C.paper} strokeWidth="1.6" fill="none"/>
+            </svg>
+          )}
+        </button>
+        <button onClick={onExport}
+          aria-label={compact ? 'Export STL' : undefined}
+          title={compact ? 'Export STL' : undefined}
+          style={{
+            padding: compact ? 0 : '10px 18px',
+            width: compact ? 38 : undefined, height: compact ? 38 : undefined,
+            background: C.red, color: C.paper,
             border: `2px solid ${C.ink}`, fontFamily: 'inherit', fontWeight: 900,
             fontSize: 13, letterSpacing: '0.12em', textTransform: 'uppercase',
             cursor: 'pointer', boxShadow: `4px 4px 0 ${C.ink}`,
-            display: 'flex', alignItems: 'center', gap: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: compact ? 0 : 8,
+            whiteSpace: 'nowrap', flexShrink: 0,
           }}>
-          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1 V9 M3 6 L7 10 L11 6 M1 12 H13" stroke={C.paper} strokeWidth="2" fill="none"/></svg>
-          Export STL
+          <svg width={compact ? 16 : 14} height={compact ? 16 : 14} viewBox="0 0 14 14"><path d="M7 1 V9 M3 6 L7 10 L11 6 M1 12 H13" stroke={C.paper} strokeWidth="2" fill="none"/></svg>
+          {!compact && 'Export STL'}
         </button>
       </div>
     </header>
@@ -398,9 +463,18 @@ function ParamPanel({ p, setP }) {
 
 export default function App() {
   const [p, setP] = React.useState(() => {
+    const baseDefaults = { ...PRESETS.tumbler, layerHeight: 0.3, segments: 96, wallThickness: 1.2 };
+    if (typeof window !== 'undefined') {
+      const urlParam = new URLSearchParams(window.location.search).get('v');
+      if (urlParam) {
+        const decoded = decodeState(urlParam);
+        if (decoded) return { ...baseDefaults, ...decoded };
+        console.warn('[vaseworks] Failed to decode shared state from URL — falling back to defaults.');
+      }
+    }
     const saved = localStorage.getItem('vaseworks_params');
     if (saved) try { return JSON.parse(saved); } catch (e) {}
-    return { ...PRESETS.tumbler, layerHeight: 0.3, segments: 96, wallThickness: 1.2 };
+    return baseDefaults;
   });
   const [preset, setPreset] = React.useState('tumbler');
   const [progress, setProgress] = React.useState(1);
@@ -411,7 +485,27 @@ export default function App() {
   const [cameraMode, setCameraMode] = React.useState('ortho');
   const [toast, setToast] = React.useState(null);
   const [helpOpen, setHelpOpen] = React.useState(false);
+  const [shareStatus, setShareStatus] = React.useState('idle');
+  const [presetsOpen, setPresetsOpen] = React.useState(false);
+  const [presetsAutoFocus, setPresetsAutoFocus] = React.useState(false);
+  const [myPresets, setMyPresets] = React.useState(() => loadPresets());
+  const [loadedFromUrl, setLoadedFromUrl] = React.useState(() => {
+    if (typeof window === 'undefined') return false;
+    const urlParam = new URLSearchParams(window.location.search).get('v');
+    if (!urlParam) return false;
+    return decodeState(urlParam) !== null;
+  });
   const helpBtnRef = React.useRef(null);
+  const myPresetsBtnRef = React.useRef(null);
+
+  const [compactHeader, setCompactHeader] = React.useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < 1280
+  );
+  React.useEffect(() => {
+    const onResize = () => setCompactHeader(window.innerWidth < 1280);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   // autoplay
   React.useEffect(() => {
@@ -444,6 +538,66 @@ export default function App() {
 
   const vase = React.useMemo(() => generateVase(p), [p]);
 
+  const onShare = React.useCallback(async () => {
+    const url = buildShareUrl(pickShareableState(p));
+    const ok = await copyTextToClipboard(url);
+    if (ok) {
+      setShareStatus('copied');
+      setTimeout(() => setShareStatus('idle'), 2000);
+    } else {
+      setShareStatus('error');
+      setToast(`Couldn't copy automatically — link: ${url}`);
+      setTimeout(() => setShareStatus('idle'), 2400);
+    }
+  }, [p]);
+
+  const persistPresets = (next) => {
+    const result = savePresets(next);
+    if (result.ok) {
+      setMyPresets(next);
+      return { ok: true };
+    }
+    return result;
+  };
+
+  const onSavePreset = React.useCallback((name) => {
+    const newPreset = {
+      id: newPresetId(),
+      name,
+      createdAt: new Date().toISOString(),
+      state: pickShareableState(p),
+    };
+    return persistPresets([newPreset, ...myPresets]);
+  }, [p, myPresets]);
+
+  const onRenamePreset = (id, name) => {
+    persistPresets(myPresets.map(pp => pp.id === id ? { ...pp, name } : pp));
+  };
+
+  const onDeletePreset = (id) => {
+    persistPresets(myPresets.filter(pp => pp.id !== id));
+  };
+
+  const onLoadPreset = (preset) => {
+    setP(prev => ({ ...prev, ...preset.state }));
+    setPresetsOpen(false);
+  };
+
+  const onSharePreset = async (preset) => {
+    const url = buildShareUrl(pickShareableState(preset.state));
+    return await copyTextToClipboard(url);
+  };
+
+  const openMyPresets = (autoFocus = false) => {
+    setPresetsAutoFocus(autoFocus);
+    setPresetsOpen(true);
+  };
+
+  const closeMyPresets = () => {
+    setPresetsOpen(false);
+    setPresetsAutoFocus(false);
+  };
+
   const onExport = () => {
     const name = preset.replace(/\s/g, '_') + '_' + Date.now().toString(36);
     const buffer = stlFromVase(vase);
@@ -468,12 +622,60 @@ export default function App() {
     }}>
       <Header
         onExport={onExport}
+        onShare={onShare}
+        shareStatus={shareStatus}
         onHelp={() => setHelpOpen(true)}
         helpBtnRef={helpBtnRef}
         preset={preset}
         onPresetChange={onPreset}
         units="mm"
+        onOpenMyPresets={() => openMyPresets(false)}
+        myPresetsBtnRef={myPresetsBtnRef}
+        compact={compactHeader}
       />
+
+      {loadedFromUrl && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+          gap: 10, padding: '6px 14px',
+          background: C.soft, borderBottom: `2px solid ${C.ink}`,
+          flexShrink: 0,
+        }}>
+          <div style={{ width: 7, height: 7, background: C.blue, border: `1.5px solid ${C.ink}` }}/>
+          <span style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: C.ink,
+          }}>
+            Loaded from link — save to My Presets?
+          </span>
+          <button
+            onClick={() => { setLoadedFromUrl(false); openMyPresets(true); }}
+            aria-label="Save loaded vase to my presets"
+            style={{
+              padding: '4px 10px',
+              background: C.ink, color: C.paper,
+              border: `2px solid ${C.ink}`,
+              fontFamily: 'inherit', fontSize: 10, fontWeight: 800,
+              letterSpacing: '0.1em', textTransform: 'uppercase',
+              cursor: 'pointer',
+            }}
+          >Save preset</button>
+          <button
+            onClick={() => setLoadedFromUrl(false)}
+            aria-label="Dismiss loaded-from-link prompt"
+            style={{
+              width: 22, height: 22, padding: 0,
+              background: C.paper, color: C.ink,
+              border: `2px solid ${C.ink}`,
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <svg width="9" height="9" viewBox="0 0 12 12" aria-hidden="true">
+              <path d="M2 2 L10 10 M10 2 L2 10" stroke={C.ink} strokeWidth="2.5" strokeLinecap="square"/>
+            </svg>
+          </button>
+        </div>
+      )}
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Left: parameters */}
@@ -638,6 +840,25 @@ export default function App() {
 
       <Toast message={toast} onClose={() => setToast(null)}/>
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} returnFocusRef={helpBtnRef}/>
+      <MyPresetsModal
+        open={presetsOpen}
+        onClose={closeMyPresets}
+        returnFocusRef={myPresetsBtnRef}
+        presets={myPresets}
+        onSave={onSavePreset}
+        onRename={onRenamePreset}
+        onDelete={onDeletePreset}
+        onLoad={onLoadPreset}
+        onSharePreset={onSharePreset}
+        autoFocusInput={presetsAutoFocus}
+      />
+      <div aria-live="polite" aria-atomic="true" style={{
+        position: 'absolute', width: 1, height: 1, margin: -1, padding: 0,
+        border: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap',
+      }}>
+        {shareStatus === 'copied' ? 'Share link copied to clipboard' :
+          shareStatus === 'error' ? 'Could not copy share link automatically' : ''}
+      </div>
     </div>
   );
 }
