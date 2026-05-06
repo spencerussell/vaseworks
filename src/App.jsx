@@ -214,6 +214,7 @@ export default function App() {
   const [yaw, setYaw] = React.useState(0.4);
   const [pitch, setPitch] = React.useState(-0.55);
   const [renderMode, setRenderMode] = React.useState('wire');
+  const [cameraMode, setCameraMode] = React.useState('ortho');
   const [toast, setToast] = React.useState(null);
 
   // autoplay
@@ -283,7 +284,7 @@ export default function App() {
         {/* Center: 3D preview */}
         <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: '#0d0f10' }}>
           <div style={{ flex: 1, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
-            <AutoSizePreview vase={vase} progress={progress} yaw={yaw} pitch={pitch} setYaw={setYaw} setPitch={setPitch} renderMode={renderMode}/>
+            <AutoSizePreview vase={vase} progress={progress} yaw={yaw} pitch={pitch} setYaw={setYaw} setPitch={setPitch} renderMode={renderMode} cameraMode={cameraMode}/>
             {/* corner cluster: orbit quick-reset — bottom right */}
             <div style={{ position: 'absolute', bottom: 14, right: 14, display: 'flex', gap: 8, zIndex: 2 }}>
               {[[0, -1.4, 'front'], [0.4, -0.55, 'angled'], [0, -0.05, 'top']].map(([y, pt, label]) => (
@@ -299,23 +300,31 @@ export default function App() {
                 >{label}</button>
               ))}
             </div>
-            {/* render mode toggle — top right */}
+            {/* camera + render mode toggles — top right */}
             <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', alignItems: 'center', gap: 10, zIndex: 2 }}>
-              <div style={{ display: 'flex', gap: 0, border: `2px solid ${C.ink}`, boxShadow: `2px 2px 0 ${C.ink}` }}>
-                {[['wire', 'Wire'], ['solid', 'Solid']].map(([val, lbl], i) => (
-                  <button key={val}
-                    onClick={() => setRenderMode(val)}
-                    style={{
-                      padding: '6px 12px',
-                      background: renderMode === val ? C.ink : C.paper,
-                      color: renderMode === val ? C.paper : C.ink,
-                      border: 'none', borderLeft: i === 0 ? 'none' : `2px solid ${C.ink}`,
-                      fontFamily: 'inherit', fontWeight: 800, fontSize: 10,
-                      letterSpacing: '0.12em', textTransform: 'uppercase', cursor: 'pointer',
-                    }}
-                  >{lbl}</button>
-                ))}
-              </div>
+              {[
+                { value: cameraMode, set: setCameraMode, opts: [['ortho', 'Ortho'], ['persp', 'Persp']] },
+                { value: renderMode, set: setRenderMode, opts: [['wire', 'Wire'], ['solid', 'Solid']] },
+              ].map((group, gi) => (
+                <div key={gi} style={{ display: 'flex', gap: 0, border: `2px solid ${C.paper}` }}>
+                  {group.opts.map(([val, lbl], i) => {
+                    const active = group.value === val;
+                    return (
+                      <button key={val}
+                        onClick={() => group.set(val)}
+                        style={{
+                          padding: '6px 12px',
+                          background: active ? C.ink : C.paper,
+                          color: active ? C.paper : C.ink,
+                          border: 'none', borderLeft: i === 0 ? 'none' : `2px solid ${C.paper}`,
+                          fontFamily: 'inherit', fontWeight: 800, fontSize: 10,
+                          letterSpacing: '0.12em', textTransform: 'uppercase', cursor: 'pointer',
+                        }}
+                      >{lbl}</button>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -408,7 +417,7 @@ export default function App() {
   );
 }
 
-function AutoSizePreview({ vase, progress, yaw, pitch, setYaw, setPitch, renderMode }) {
+function AutoSizePreview({ vase, progress, yaw, pitch, setYaw, setPitch, renderMode, cameraMode }) {
   const ref = React.useRef(null);
   const [size, setSize] = React.useState({ w: 800, h: 600 });
   React.useEffect(() => {
@@ -426,6 +435,7 @@ function AutoSizePreview({ vase, progress, yaw, pitch, setYaw, setPitch, renderM
         yaw={yaw} pitch={pitch}
         onYawChange={setYaw} onPitchChange={setPitch}
         renderMode={renderMode}
+        cameraMode={cameraMode}
         width={size.w} height={size.h}/>
     </div>
   );

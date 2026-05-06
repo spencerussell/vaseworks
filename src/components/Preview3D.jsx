@@ -28,7 +28,7 @@ function project(x, y, z, yaw, pitch) {
   return { x: x1, y: y2, depth: z2 };
 }
 
-export function Preview3D({ vase, progress, yaw, pitch, onYawChange, onPitchChange, width = 640, height = 640, showLayers = true, showPath = false, renderMode = 'wire' }) {
+export function Preview3D({ vase, progress, yaw, pitch, onYawChange, onPitchChange, width = 640, height = 640, showLayers = true, showPath = false, renderMode = 'wire', cameraMode = 'ortho' }) {
   const dragging = React.useRef(null);
 
   const onDown = (e) => {
@@ -41,8 +41,8 @@ export function Preview3D({ vase, progress, yaw, pitch, onYawChange, onPitchChan
     const pt = e.touches ? e.touches[0] : e;
     const dx = pt.clientX - dragging.current.x;
     const dy = pt.clientY - dragging.current.y;
-    onYawChange(dragging.current.yaw + dx * 0.01);
-    onPitchChange(Math.max(-1.45, Math.min(0.05, dragging.current.pitch - dy * 0.008)));
+    onYawChange(dragging.current.yaw + dx * 0.006);
+    onPitchChange(Math.max(-1.45, Math.min(0.05, dragging.current.pitch + dy * 0.006)));
   };
   const onUp = () => { dragging.current = null; };
 
@@ -70,6 +70,12 @@ export function Preview3D({ vase, progress, yaw, pitch, onYawChange, onPitchChan
   // (a tilted vase needs less vertical space than its physical height).
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
   const cyaw = Math.cos(yaw), syaw = Math.sin(yaw);
+  // Perspective camera distance — viewer sits at +depth = D, image plane at depth = 0.
+  // D must comfortably exceed the largest depth value any vertex projects to so the
+  // foreshortening factor stays well-conditioned (no near-clipping, no inversion).
+  const persp = cameraMode === 'persp';
+  const D = Math.max(maxR, totalHeight) * 4;
+  const perspFactor = (depth) => persp ? D / (D - depth) : 1;
   let projMinX = Infinity, projMaxX = -Infinity, projMinY = Infinity, projMaxY = -Infinity;
   // Sample top, mid, bottom rings (covers the silhouette extent under any rotation)
   const sampleRings = [layers[0], layers[Math.floor(layers.length / 2)], layers[layers.length - 1]];
@@ -79,10 +85,13 @@ export function Preview3D({ vase, progress, yaw, pitch, onYawChange, onPitchChan
       const x1 = pt.x * cyaw - pt.y * syaw;
       const y1 = pt.x * syaw + pt.y * cyaw;
       const y2 = y1 * cp - pt.z * sp;
-      if (x1 < projMinX) projMinX = x1;
-      if (x1 > projMaxX) projMaxX = x1;
-      if (y2 < projMinY) projMinY = y2;
-      if (y2 > projMaxY) projMaxY = y2;
+      const z2 = y1 * sp + pt.z * cp;
+      const f = perspFactor(z2);
+      const px = x1 * f, py = y2 * f;
+      if (px < projMinX) projMinX = px;
+      if (px > projMaxX) projMaxX = px;
+      if (py < projMinY) projMinY = py;
+      if (py > projMaxY) projMaxY = py;
     }
   }
   const projW = projMaxX - projMinX;
@@ -97,7 +106,8 @@ export function Preview3D({ vase, progress, yaw, pitch, onYawChange, onPitchChan
 
   const toScreen = (x, y, z) => {
     const p = project(x, y, z, yaw, pitch);
-    return { x: cx + p.x * scale, y: cy - p.y * scale, depth: p.depth };
+    const f = perspFactor(p.depth);
+    return { x: cx + p.x * f * scale, y: cy - p.y * f * scale, depth: p.depth };
   };
 
   const visibleLayerCount = Math.max(1, Math.round(layers.length * progress));
