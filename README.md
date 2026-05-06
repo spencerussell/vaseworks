@@ -20,10 +20,8 @@ Drop the exported STL into PrusaSlicer, Bambu Studio, or Cura with vase mode ena
 
 ## Built with
 
-A single-page HTML/JS app, no framework or build step. The whole thing lives in `src/index.html`:
-
-- React 18 + ReactDOM (UMD via unpkg)
-- Babel Standalone for in-browser JSX
+- React 18
+- Vite (JSX, no TypeScript)
 - Hand-written geometry math and SVG rendering — no Three.js
 - Space Grotesk via Google Fonts
 - Static deploy via [Vercel](https://vercel.com)
@@ -43,6 +41,7 @@ To produce the static `dist/` folder for deployment:
 
 ```bash
 npm run build
+npm run preview   # serve the built artifact locally on :4173
 ```
 
 ## About

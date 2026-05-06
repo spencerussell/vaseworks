@@ -1,10 +1,11 @@
 # Multi-stage: build the static artifact, then serve it from nginx.
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package.json ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json* ./
+RUN npm ci || npm install
+COPY index.html vite.config.js ./
+COPY public ./public
 COPY src ./src
-COPY scripts ./scripts
 RUN npm run build
 
 FROM nginx:1.27-alpine AS serve
